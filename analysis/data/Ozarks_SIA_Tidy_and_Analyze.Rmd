@@ -1,0 +1,229 @@
+---
+title: "Ozarks_SIA_Analysis"
+author: "CJR"
+date: "8/19/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(here)
+library(tidyverse)
+library(readxl)
+library(datawizard)
+
+```
+
+
+```{r}
+
+sia_master<-read_xlsx(here("analysis/data/raw_data/Ozarks_SIA_master.xlsx"))%>%
+  select(Site, Type, Taxon, Sample, d15N,d13C, C_per,N_per,CN_mass_ratio)%>%
+  filter(Site != "BLANK")%>%
+  mutate(Acidified = as_factor(ifelse(str_detect(Type, "acid"), "Yes", "No")))%>%
+  mutate(Type = as_factor(str_remove(Type,"-acid")))%>%
+  mutate(Site = fct_collapse(Site,
+                             `Cap Fork-North Sylamore` = c("Cap Fork", "Capfork"),
+                             `Cove` = c("Cove", "Cove Creek"),
+                             `East Livingstone` = c("E. Livingston", "E. Livingstone"),
+                             `Lewis Prong-Panther` = c("Lewis Prong", "Lewis Prong Panther"),
+                             `North Sylamore` = c("Sylvamore", "Sylamore"),
+                             `Lick Branch-Little Mulberry` = "Lick Branch",
+                             Spring = "Spring Creek"))%>%
+  mutate(Taxon = fct_collapse(Taxon, 
+                              Chloroperlidae = "ChloroPerlidae",
+                              Heptageniidae = "Heptageniid",
+                              Hydropsychidae = c("Hydropsychid","Hydropsyhid", "Hydrospychid", "Hydrospychidae"),
+                              Corydalidae_Lg = c("Large Megaloptera", "Large_Megaloptera"),
+                              Corydalidae_sm = c("Small Megaloptera", "Small_Megaloptera"),
+                              Corydalidae_Lg = "Hellgrammite",
+                              Heptageniidae = "Heptgeniid",
+                              Oligochaete = "Oligachaete",
+                              Physidae = "Physidaes",
+                              Psephenidae = "Psephenis",
+                              Tabanidae = c("Tabinid", "Tabanid"),
+                              Tipulidae = "Tipulid",
+                              `NA` = c("N/A", "NA")
+                              ),
+         Taxon = na_if(Taxon, "NA"),
+         Taxon = fct_drop(Taxon,"NA"))
+
+
+
+
+```
+
+
+```{r}
+
+sia2<- sia_master%>%
+  select(-Sample)%>%
+  group_by(Site, Type,Taxon,Acidified)%>%
+  summarize(d13C_uncorr = mean(d13C),
+            d15N = mean(d15N),
+            C_per_uncorr = mean(C_per),
+            N_per = mean(N_per))
+
+sia_acids <- sia2%>%
+  filter(Acidified == "Yes")%>%
+  rename(d13C_acid = d13C_uncorr,
+         C_per_acid = C_per_uncorr)%>%
+  select(Site, Type, Taxon, d13C_acid, C_per_acid)
+
+sia <- sia2%>%
+  filter(Acidified == "No")%>%
+  select(-Acidified)%>%
+  full_join(sia_acids, by = c("Site", "Type", "Taxon"))%>%
+  ungroup()%>%
+  mutate(d13C = ifelse(is.na(d13C_acid), d13C_uncorr, d13C_acid),
+         C_per = ifelse(is.na(C_per_acid), C_per_uncorr, C_per_acid))%>%
+  mutate(CN_molar = (C_per/N_per)*(14/12),
+         con_res = fct_collapse(Type, 
+                                Resource = c("Biofilm", "Algae", "CPOM", "FPOM"),
+                                other_level = "Consumer"))
+
+
+
+```
+
+```{r sia view}
+#distributions of resource values
+sia_distros <- sia%>%
+  select(d13C,d15N,N_per,C_per,CN_molar)%>%
+  describe_distribution()
+
+sia_distros
+
+#simple mixing models
+
+```
+
+```{r}
+sia%>%
+  filter(Type != "FPOM")%>%
+  ggplot(aes(x = d13C, y = d15N, color = con_res, shape = Type))+
+  geom_point()+
+  facet_wrap(.~Site)
+
+```
+Note: Little Piney periphyton was lost by the time it was needed to analyze for SIA, so algae are not included here
+-Mill, Lewis prong, Mulberry missing d15N values for separated algae
+
+
+
+simmr
+
+Source data need to have sds but target data need to be individuals. May need to consider checking some physid data that have low d13C and low %C - possible carbonate contamination?
+
+
+```{r create source data}
+
+sia2<- sia_master%>%
+  select(-Sample)%>%
+  filter(Type != "FPOM")%>%
+  group_by(Site, Type,Taxon,Acidified)%>%
+  summarize(d13C_uncorr_mean = mean(d13C, na.rm = TRUE),
+            C_per_uncorr = mean(C_per, na.rm = TRUE),
+            N_per = mean(N_per, na.rm = TRUE),
+            d15N_mean = mean(d15N, na.rm = TRUE),
+            d13C_uncorr_sd = sd(d13C, na.rm = TRUE),
+            d15N_sd = sd(d15N, na.rm = TRUE))
+
+sia_acids <- sia2%>%
+  filter(Acidified == "Yes")%>%
+  rename(d13C_acid = d13C_uncorr_mean,
+         C_per_acid = C_per_uncorr,
+         d13C_acid_sd = d13C_uncorr_sd)%>%
+  select(Site, Type, Taxon, d13C_acid, C_per_acid,d13C_acid_sd)
+
+sia_sources <- sia2%>%
+  filter(Acidified == "No")%>%
+  select(-Acidified)%>%
+  full_join(sia_acids, by = c("Site", "Type", "Taxon"))%>%
+  ungroup()%>%
+  mutate(d13C_mean = ifelse(is.na(d13C_acid), d13C_uncorr_mean, d13C_acid),
+         d13C_sd = ifelse(is.na(d13C_acid), d13C_uncorr_sd, d13C_acid_sd),
+         C_per = ifelse(is.na(C_per_acid), C_per_uncorr, C_per_acid))%>%
+  mutate(CN_molar = (C_per/N_per)*(14/12),
+         con_res = fct_collapse(Type, 
+                                Resource = c("Biofilm", "Algae", "CPOM", "FPOM"),
+                                other_level = "Consumer"))%>%
+  filter(Type != "INVERT", Type != "Biofilm")%>%
+  #filter(Type != "INVERT")%>%
+  select(Site, Type, d13C_mean, d15N_mean, d13C_sd, d15N_sd)
+
+
+
+
+
+```
+
+
+
+```{r}
+
+#none of the inverts needed acidification
+sia_targets <- sia_master%>%
+  filter(Type == "INVERT")%>%
+  select(Site, Taxon, d13C, d15N, C_per, N_per)%>%
+  filter(!is.na(d13C))%>%
+  mutate(Taxon = as_factor(Taxon))
+
+```
+
+```{r filter target and source to one site}
+sia_targets_CF <- sia_targets%>%
+  filter(Site == "Cap Fork-North Sylamore")|>
+  mutate(Taxon = as.character(Taxon))
+sia_targets_CF$Taxon
+
+sia_sources_CF <- sia_sources%>%
+  filter(Site == "Cap Fork-North Sylamore")
+
+sia_targets_CF <- sia_targets%>%
+  filter(Site == "Roasting Ear")|>
+  mutate(Taxon = as.character(Taxon))
+sia_targets_CF$Taxon
+
+sia_sources_CF <- sia_sources%>%
+  filter(Site == "Roasting Ear")
+
+```
+
+
+
+
+
+
+```{r simmr test load}
+CF_simmr = simmr_load(mixtures = sia_targets_CF[, 3:4],
+                         source_names = as.character(sia_sources_CF$Type),
+                         source_means = as.matrix(sia_sources_CF[,3:4]),
+                         source_sds = as.matrix(sia_sources_CF[,5:6]),
+                        # correction_means = as.matrix(TEFs[,2:3]),
+                        # correction_sds = as.matrix(TEFs[,4:5]),
+                        # concentration_means = as.matrix(concdep[,2:3]),
+                         group = sia_targets_CF$Taxon
+                      )
+
+```
+
+
+```{r simmr test viz}
+plot(CF_simmr)
+
+```
+```{r}
+simmr_out_cf <- simmr_mcmc(CF_simmr)
+
+summary(simmr_out_cf, type = "diagnostics")
+post_pred_cf <- posterior_predictive(simmr_out_cf)
+post_pred_cf
+```
+```{r}
+summary(simmr_out_cf, type = "quantiles", group = 2)
+plot(simmr_out_cf,type = "matrix")
+compare_groups(simmr_out_cf, source = "Algae", groups = seq(1:length(unique(sia_targets_CF$Taxon))))
+```
+
+For sites with no d15N data for algae - calculate %algal contribution using d13C only, then add to results dataframe

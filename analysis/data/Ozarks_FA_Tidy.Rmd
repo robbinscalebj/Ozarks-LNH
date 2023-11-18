@@ -1,0 +1,232 @@
+---
+title: "Ozarks_FA_Tidy"
+author: "CJR"
+date: "8/22/2021"
+output: html_document
+---
+
+#Data ingest
+-Read in Inverts and Periphyton FA files
+- For each file, reconcile names, long format
+- Join dataframes
+-Normalize to Ozarks_SiteData_Summarized.csv slurry data
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(here)
+
+here::i_am("analysis/data/Ozarks_FA_Tidy.Rmd")
+
+#read in inverts and peri data files
+FA_inverts_raw <- read_csv(here("analysis/data/raw_data/Ozarks_Inverts_FA_Biomass.csv"), col_names = FALSE) #units are ug FA/mg fresh weight
+FA_peri_raw <- read_csv(here("analysis/data/raw_data/Ozarks_Periphyton_FA_Volumetric.csv"), col_names = FALSE) #units are ug FA/L slurry
+```
+
+#Read in slurry data and normalize biomass values to surface area and whatever else.
+
+```{r}
+Ozarks_env <- read_csv(here("analysis/data/raw_data/Ozarks_SiteData_Summarized.csv"))%>%
+  mutate(Site = fct_collapse(Site,
+                             `Cap Fork-North Sylamore` = "Cap Fork North Sylamore Creek",
+                             `Lewis Prong-Panther` = "Lewis Prong Panther Creek",
+                             `Lick Branch-Little Mulberry` = "Lick Branch Little Mulberry River",
+                             `Spring` = "Spring Creek", 
+                             `Diles` = "Diles Creek",
+                             `Cove` = "Cove Creek",
+                             `Mulberry` = "Mulberry River",
+                           `Mill` = "Mill Creek",
+                           `Hurricane` = "Hurricane Creek",
+                           `Roasting Ear` = "Roasting Ear Creek",
+                           `East Livingstone` = "East Livingstone Creek"),
+         EcoRegion = as_factor(EcoRegion))%>%
+  mutate(chla.afdm_per = 100*((Slurry_Chla_mg/1000)/Slurry_AFDM_g),
+         AI = Slurry_AFDM_g/(Slurry_Chla_mg/1000),
+         chla_mg.m2 = Slurry_Chla_mg/(Cobble_SA_cm2/10000),
+         afdm_mg.m2 = Slurry_AFDM_g/(Cobble_SA_cm2/10000))
+
+ozarks_stcat <- read_csv(here("analysis/data/raw_data/Ozarks_StreamCatMetrics.csv"))|>select(sitelabel, PctUrbOp2019Ws,PctUrbLo2019Ws,PctUrbMd2019Ws,PctUrbHi2019Ws,PctDecid2019Ws,PctConif2019Ws,PctMxFst2019Ws,PctHay2019Ws,SepticWs)|>
+  rename(Site = "sitelabel", Hay_per = "PctHay2019Ws", UrbOp_per = "PctUrbOp2019Ws", UrbLo_per = PctUrbLo2019Ws, UrbMed_per="PctUrbMd2019Ws", UrbHi_per="PctUrbHi2019Ws", Decid_per="PctDecid2019Ws", Conif_per="PctConif2019Ws", MixFor_per="PctMxFst2019Ws")|>
+  mutate(UrbTot_per = UrbLo_per+UrbMed_per+UrbHi_per, ForTot = Decid_per+Conif_per+MixFor_per)
+
+Ozarks_env <- Ozarks_env |>full_join(ozarks_stcat, by = "Site")
+
+Env_for_FA_peri <- Ozarks_env%>%
+  mutate(FA_scale_factor = (Slurry_Volume_mL/1000)/(Cobble_SA_cm2/10000))%>%
+  select(Site, FA_scale_factor)
+
+
+
+
+```
+
+
+#Tidy inverts data
+```{r}
+inverts_headers <- FA_inverts_raw %>% 
+  slice(1:2)%>%
+  summarize(across(.cols = everything(),~paste0(., collapse = "_")))%>%
+  mutate(across(.cols = everything(), ~ifelse(str_detect(.,"_2"), . ,paste0(., "_1"))))%>%
+  unlist(., use.names = FALSE)
+
+FA_inverts <- FA_inverts_raw%>% slice(-1:-2)
+names(FA_inverts) <- inverts_headers
+
+FA_inverts <- FA_inverts%>%
+  rename(FA_ID = `NA_FA_id_1`)%>%
+  pivot_longer(names_to = c("Site", "Taxon", "Rep"), names_sep = "_", cols = -FA_ID, values_to = "FA_ug.mg")%>%
+  mutate(FA_ID = as_factor(FA_ID),
+         Site = as_factor(Site),
+         Taxon = as_factor(Taxon),
+         Rep = as_factor(Rep))%>%
+  mutate(Site = fct_collapse(Site,
+                             `Cap Fork-North Sylamore` = "Cap Fork",
+                             `Lewis Prong-Panther` = c("Lewis Prong"),
+                             `Lick Branch-Little Mulberry` = "Lick Branch"),
+         Taxon = fct_collapse(Taxon, 
+                              Aeshnidae = "Aeshnid",
+                              Chloroperlidae = "Chloroperlid",
+                              Heptageniidae = "Heptageniid",
+                              Hydropsychidae = "Hydropsychid",
+                              Isonychiidae = "Isonychia",
+                              #Corydalidae_Lg = "Large Megaloptera",
+                              #Corydalidae_sm = c("Small Megaloptera","Small Megalopte"),
+                              Corydalidae = c("Small Megaloptera","Small Megalopte","Large Megaloptera"),
+                              Heptageniidae = "Heptageniid",
+                              Leptoceridae = "Leptocerid",
+                              Limnephilidae = "Limnephilid",
+                              Philopotamidae = "Philopotamid",
+                              Physidae = "Snails",
+                              Psephenidae = "Psephenis",
+                              Tabanidae = "Tabanid",
+                              Tipulidae = "Tipulid"))%>%
+  mutate(FA_ug.mg = as.numeric(FA_ug.mg))%>%
+  group_by(FA_ID, Site, Taxon)%>%
+  summarize(FA_ug.mg = mean(FA_ug.mg))%>%
+  mutate(FA_ID = str_remove(FA_ID,"FA"),
+         Type = "Invert")%>%
+  pivot_wider(names_from = FA_ID, values_from = FA_ug.mg)%>%
+  full_join(Ozarks_env, by = "Site")
+```
+Sites and Taxon names reconciled
+
+
+
+#Tidy periphyton data
+```{r}
+peri_headers<- FA_peri_raw %>%slice(1:2)%>%
+  summarize(across(.cols = everything(),~paste0(., collapse = "_")))%>%
+  unlist(., use.names = FALSE)
+
+FA_peri <- FA_peri_raw%>%slice(-1:-2)
+names(FA_peri) <- peri_headers
+
+FA_peri<-FA_peri%>%
+  rename(FA_ID = `NA_FA_id`)%>%
+  pivot_longer(names_to = c("Rerun", "Site_Rep"), names_sep = "_", cols = -FA_ID, values_to = "FA_ug.L")%>%
+    separate(Site_Rep, into = c("Site", "Rep"))%>%
+    mutate(FA_ID = str_remove(FA_ID,"FA"),
+           Rep = str_replace(Rep, "Agl3", "Alg3"),
+           Taxon = NA,
+         Type = "Periphyton")%>%
+    mutate(Site = as_factor(Site),
+         Taxon = as_factor(Taxon),
+         Rep = as_factor(Rep),
+         Type = as_factor(Type))%>%
+   mutate(FA_ug.L = as.numeric(FA_ug.L))%>%
+  pivot_wider(names_from = FA_ID, values_from = FA_ug.L)%>%
+  mutate(Rerun = ifelse(Rerun == "Rerun", TRUE, FALSE))%>%
+  group_by(Site, Rep)%>%
+  filter(case_when(any(Rerun == TRUE) ~ Rerun == TRUE, TRUE ~ Rerun == FALSE))%>%
+  ungroup()%>%
+  mutate(Rep = str_remove(Rep, "Alg"))%>%
+mutate(Site = fct_collapse(Site,
+                             `Cap Fork-North Sylamore` = "CapFork",
+                             `Lewis Prong-Panther` = "LewisP",
+                             `Lick Branch-Little Mulberry` = "LickB",
+                             `Little Piney` = "LPiney", 
+                           `Mill` = "MillC",
+                           `Roasting Ear` = "RoastEar",
+                           `North Sylamore` = "Sylamore",
+                           `East Livingstone` = "ELivingston"))%>%
+  select(-Rerun)
+
+
+FA_peri_for_join <- FA_peri%>%
+  select(-Taxon, -Rep)%>%
+  group_by(Site, Type)%>%
+  summarize(across(.cols = everything(), mean))%>%
+  full_join(Env_for_FA_peri, by = "Site")%>%
+  relocate(FA_scale_factor)%>%
+  mutate(across(!contains(c("Site", "Type", "FA_scale_factor")), ~.*FA_scale_factor))%>% #periphyton units are ug FA/m2
+  select(-FA_scale_factor)%>%
+  full_join(Ozarks_env, by = "Site")
+
+FA_peri_sums_areal <- FA_peri|>
+  select(-Taxon, -Rep, -Type)%>%
+  select(where(~any(. != 0)))|>
+  mutate(across(all_of(2:33), ~./1000))|> #periphyton units = mg FA
+  full_join(Env_for_FA_peri, by = "Site")%>%
+  relocate(FA_scale_factor)%>%
+  mutate(across(!contains(c("Site", "Type", "FA_scale_factor")), ~.*FA_scale_factor))%>% #periphyton units are ug FA/m2
+  select(-FA_scale_factor)%>%
+  group_by(Site)|>
+  summarize(across(everything(), .fns = list(mean = mean,var = var), .names = "{.col}_{.fn}"))|>
+  full_join(Ozarks_env, by = "Site")
+
+
+```
+# Write to file
+
+```{r join and write file}
+
+FA_df <- full_join(FA_inverts, FA_peri_for_join)
+FA_df|>write_csv(here("analysis/data/derived_data/FA_all_tidied.csv"))
+FA_peri_sums_areal|>write_csv(here("analysis/data/derived_data/FA_peri_sums_areal.csv"))
+
+```
+
+
+# Old
+```{r}
+
+
+#tack inverts data onto 
+
+
+
+
+
+#biomarkers dataset - do this once dataframe contains invert data as well. 
+FA_bm<-FA_df%>%
+   mutate(bm_w3 = `18:3w3`+`18:4w3`+`20:5w3`+`22:5w3`+`22:6w3`, #16:4w3, 16:4w1, 18:4w4 and #18:5w3,20:3w3, 20:4w3 not found across samples
+        bm_18w3 = `18:3w3`+`18:4w3`, #18:4w4 and 18:5w3 not found across samples 
+        bm_20w3 =  `20:5w3`, #`20:3w3` + `20:4w3` not found across samples
+        bm_22w3 = `22:5w3` + `22:6w3`,
+        ALA_SDA = `18:3w3` + `18:4w3`, #18:4w4 not found across samples
+        EPA = `20:5w3`,
+        DHA = `22:6w3`,
+        EPA_DHA = EPA + DHA,
+        bm_diatoms = `16:2w7` + `16:3w4`,  #16:2w4 not found across samples
+        bm_green = `16:3w3`, #16:2w6 and 16:4w3 not found across samples
+        bm_w6 = `18:2w6` + `18:3w6` + `20:2w6` + `20:4w6`, #16:1w6, 16:2w4,20:3w6, 22:4w6, 22:5w6 not found across samples
+        LIN = `18:2w6`,
+        ARA = `20:4w6`,
+        w3_w6 = bm_w3/bm_w6, 
+        BrFA = `i-14:0` + `i-15:0` + `a-15:0`+ `i-16:0` + `a-17:0` + `17:0`,
+        bm_16MUFA = `16:1w9` +  `16:1w7`  + `16:1w5`, #`16:1w8` + `16:1w6` not found across samples
+        bm_18MUFA = `18:1w9` + `18:1w7`,
+        bm_MUFA = bm_16MUFA + bm_18MUFA, # 20:1w9, 20:1w7,22:1w9,22:1w9 not found across samples
+        SAFA = `14:0` + `16:0` + `17:0` + `20:0`,
+        LSAFA_C22 = `22:0` + `23:0` + `24:0`, # 26,27,28,29,30 not found across samples
+        LSAFA_C24 = `23:0` + `24:0`, .keep = "all") #higher SAFAs not found across samples
+  #full_join(Ozarks_env, by = c("Site"))
+
+
+```
+
+
+
+
+
+
+
