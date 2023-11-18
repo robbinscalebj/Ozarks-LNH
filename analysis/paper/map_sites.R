@@ -9,7 +9,7 @@ key <- read_delim(key_file, delim = "/t",col_names = FALSE)|>pull()
 #Google's API to use, e.g., Stamen Maps, is free but must have a registered key
 # I manually set 'key_file' to the location of my key on each computer I work on
 # but do not want that key to be public on github.
-register_google(key = key, write = TRUE)
+register_google(key = key)
 
 
 sites <- read_csv(here("analysis/data/raw_data/Ozarks_SiteData_Summarized.csv"))|>
