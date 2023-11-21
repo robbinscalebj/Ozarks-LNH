@@ -16,6 +16,7 @@ library(here)
 library(broom)
 library(heplots)
 library(broom.mixed)
+library(cowplot)
 library(car)
 #library(leaps)
 
@@ -42,6 +43,7 @@ FA <- read_csv(here("analysis/data/derived_data/FA_all_tidied.csv"))|>
 #periphyton units are ug FA/m2
 
 FA2<-FA|>group_by(Site,EcoRegion)|>summarize(SRP_ug.L = mean(SRP_ug.L),NO3_ug.L = mean(NO3_ug.L), Canopy_Cover_per = mean(Canopy_Cover_per))
+
 ggplot(data = FA2, aes(x = NO3_ug.L))+geom_histogram()
 ggplot(data = FA2, aes(x = Canopy_Cover_per))+geom_density()
 
@@ -107,6 +109,7 @@ FA_groups_per <- FA|>
 
 ```
 
+# Descriptive plots
 ```{r FA plots}
 
 peri_area.p <- FA_groups_areal|>
@@ -115,14 +118,14 @@ peri_area.p <- FA_groups_areal|>
   select(1:19,-Taxon,-Type)|>select(where(~ any(. != 0)))|>
   pivot_longer(2:17,values_to = "FA_mg.m2", names_to = "FA")|>mutate(FA = as_factor(FA))|>
   filter(!str_detect(FA,"16PUFA")&!str_detect(FA,"_sum")&!str_detect(FA,"MUFA_")&!str_detect(FA,"brFA"))|>
-  mutate(FA = fct_recode(FA,"w3:w6" = "w3_w6", "Total FA" = "Tot_FA", "PUFA"= "sum_PUFA"),
+  mutate(FA = fct_recode(FA, !!paste0("\U03C9","3:","\U03C9","6") := "w3_w6", "Total FA" = "Tot_FA", "PUFA"= "sum_PUFA"),
          FA = fct_reorder(FA, FA_mg.m2, .fun = median, .desc = TRUE))|>
   ggplot(aes(x = FA, y = FA_mg.m2))+
   geom_boxplot(linewidth = 0.75)+
   geom_point(size = 3, alpha = 0.5)+
   scale_y_log10(breaks = c(0.0002,0.01,0.1,1, 10, 200), labels = c("0.0002","0.01","0.1", "1", "10", "200"))+
   theme_bw()+
-  ylab(bquote("Fatty Acid (mg ∙"~m^2 ~")"))+ #ALT +249 gives multiplication dot
+  ylab(bquote("Fatty Acid (mg ∙"~m^2~")"))+ #ALT +249 gives multiplication dot
   theme(axis.text.x = element_text(angle = 90, size = 15, face = "bold", vjust = 0.5), axis.title.x = element_blank(),
         axis.text.y = element_text(size = 15, face = "bold"), axis.title.y = element_text(size = 18, face = "bold"))
 peri_area.p
@@ -131,49 +134,59 @@ peri_per.p <- FA_groups_per|>
   filter(Type == "Periphyton")|>
   relocate(ARA, per_PUFA, .before = "DPA")|>
   select(1:18,-Taxon,-Type)|>select(where(~ any(. != 0)))|>
-  pivot_longer(2:16,values_to = "FA_mg.m2", names_to = "FA")|>mutate(FA = as_factor(FA))|>
-  filter(!str_detect(FA,"16PUFA")&!str_detect(FA,"_sum")&!str_detect(FA,"MUFA_")&!str_detect(FA,"brFA"))|>
-  mutate(FA = fct_recode(FA,"w3:w6" = "w3_w6", "PUFA" = "per_PUFA"),
-         FA = fct_reorder(FA, FA_mg.m2, .fun = median, .desc = TRUE))|>
-  ggplot(aes(x = FA, y = FA_mg.m2))+
+  pivot_longer(2:16,values_to = "FA_per", names_to = "FA")|>mutate(FA = as_factor(FA))|>
+  filter(!str_detect(FA,"16PUFA")&!str_detect(FA,"_sum")&!str_detect(FA,"MUFA_")&!str_detect(FA,"brFA")&FA!="w3_w6")|>
+  mutate(FA = fct_recode(FA, "PUFA" = "per_PUFA"),
+         FA = fct_reorder(FA, FA_per, .fun = median, .desc = TRUE))|>
+  ggplot(aes(x = FA, y = FA_per))+
   geom_boxplot(linewidth = 0.75)+
   geom_point(size = 3, alpha = 0.5)+
   scale_y_log10(breaks = c(0.001,0.01,0.1,1,10,100), labels = c("0.001","0.01","0.1","1","10","100"))+
   theme_bw()+
-  ylab(bquote("Fatty Acid (%)"))+
+  ylab(bquote("Fatty Acid (% Total FA)"))+
   theme(axis.text.x = element_text(angle = 90, size = 15, face = "bold", vjust = 0.5), axis.title.x = element_blank(),
         axis.text.y = element_text(size = 15, face = "bold"), axis.title.y = element_text(size = 18))
 peri_per.p
 
+#
+peri_fa.p<-plot_grid(peri_area.p, peri_per.p, nrow = 2, labels = "AUTO", label_x = 0.95, label_y = 0.99, 
+                     label_size = 18)
+peri_fa.p
+
+ggsave(peri_fa.p, filename = here("analysis/paper/figures_and_tables/Fig1_Peri-FAs.jpeg"),
+       height = 6.5, width = 9.5)
 ```
 
 
-```{r}
-FA_groups_per|>
+```{r just a tool to help look at FA ranges}
+blah <-  FA_groups_areal|>
   filter(Type == "Periphyton")|>
-  select(1:18,-Taxon,-Type)|>select(where(~ any(. != 0)))|>
-  pivot_longer(2:15,values_to = "FA_per", names_to = "FA")|>mutate(FA = as_factor(FA))|>
-  ggplot(aes(x = FA, y = FA_per))+geom_violin()+geom_point()+scale_y_log10()
+  relocate(sum_PUFA, ARA, .before = "DPA")|>
+  select(1:19,-Taxon,-Type)|>select(where(~ any(. != 0)))|>
+  pivot_longer(2:17,values_to = "FA_mg.m2", names_to = "FA")|>mutate(FA = as_factor(FA))|>
+  filter(!str_detect(FA,"16PUFA")&!str_detect(FA,"_sum")&!str_detect(FA,"MUFA_")&!str_detect(FA,"brFA"))|>
+  mutate(FA = fct_recode(FA, !!paste0("\U03C9","3:","\U03C9","6") := "w3_w6", "Total FA" = "Tot_FA", "PUFA"= "sum_PUFA"),
+         FA = fct_reorder(FA, FA_mg.m2, .fun = median, .desc = TRUE))
 
-FA_groups_per|>
-  filter(Type == "Invert")|>
+blahper <- FA_groups_per|>
+  filter(Type == "Periphyton")|>
+  relocate(ARA, per_PUFA, .before = "DPA")|>
   select(1:18,-Taxon,-Type)|>select(where(~ any(. != 0)))|>
-  pivot_longer(2:15,values_to = "FA_per", names_to = "FA")|>mutate(FA = as_factor(FA))|>
-  ggplot(aes(x = FA, y = FA_per))+geom_violin()+geom_point()+scale_y_log10()
+  pivot_longer(2:16,values_to = "FA_per", names_to = "FA")|>mutate(FA = as_factor(FA))|>
+  filter(!str_detect(FA,"16PUFA")&!str_detect(FA,"_sum")&!str_detect(FA,"MUFA_")&!str_detect(FA,"brFA")&FA!="w3_w6")|>
+  mutate(FA = fct_recode(FA, "PUFA" = "per_PUFA"),
+         FA = fct_reorder(FA, FA_per, .fun = median, .desc = TRUE))
+
+
+blah2<-blah|>filter(FA == "ARA")|>arrange(FA_mg.m2)
+blahper2<-blahper|>filter(FA == "ARA")|>arrange(FA_per)
+blah2
+blahper2
 ```
 
 
 
-
-Hypothesis: Light and nutrients control variation in fatty acid composition.
-Alt Hypothesis: Variation poorly defined by light/nutrients, instead EcoRegion or something else.
-We can test this via omnibus test of a simple OLS reg model with light and nutrients predicting each FA group. We can also compare models with different predictors using AIC. 
-
-FA groups: EPA, w3:w6, brFA, LSAFA, 
-
-We used eta^2 as a measure of variance explained by the canopy and nutrient predictors while accounting for potentially confounding effects of EcoRegion differences that influence substrate. Although, we did not notice significant variance inflation or preliminary visualization did nto indicate correlatations among these variables. Eta^2 is the ratio of the sum of squares of a predictor divided by the total sum of squares of the model.
-
-## Periphyton reg models
+# Periphyton linear models
 ```{r areal lms}
 peri_areal_lms <- FA_groups_areal|>
   filter(Type == "Periphyton")|>
@@ -201,11 +214,16 @@ peri_areal_lms_outlier <- FA_groups_areal|>
   nest_by(FA)|>
   mutate(model = ifelse(FA %in% c("brFA", "LSAFA"), list(lm(FA_per ~ EcoRegion+Canopy_Cover_per+NO3_ug.L, data = data[data$Site!="Mill",])), list(lm(FA_per ~ EcoRegion+Canopy_Cover_per+NO3_ug.L, data = data))),
          model_reduced = ifelse(FA %in% c("brFA", "LSAFA"), list(lm(FA_per ~ EcoRegion, data = data[data$Site!="Mill",])), list(lm(FA_per ~ EcoRegion, data = data))))|>
-  summarize(glance(model), 
+ summarize(glance(model), 
             coefs = list(tidy(model)|>filter(term != "(Intercept)")), 
             vif = list(tibble(vif(model))),
             p.val_lnh= anova(model,model_reduced)[[6]][[2]],
-            Anova(model, type = 2)|>as_tibble(rownames = "term")|>rename(ss= `Sum Sq`)|>mutate(sum_ss = sum(ss), pss = ss/sum_ss)|>filter(term %in% c("Canopy_Cover_per","NO3_ug.L"))|>summarize(pR2_lnh = sum(pss)))|>
+            Anova(model, type = 2)|>as_tibble(rownames = "term")|>rename(ss= `Sum Sq`)|>mutate(sum_ss = sum(ss), pss = ss/sum_ss)|>filter(term %in% c("Canopy_Cover_per","NO3_ug.L"))|>summarize(pR2_lnh = sum(pss)),
+            Anova(model, type = 2)|>as_tibble(rownames = "term")|>rename(ss= `Sum Sq`)|>mutate(sum_ss = sum(ss), pss = ss/sum_ss)|>filter(term %in% c("EcoRegion"))|>summarize(pR2_ecoregion = sum(pss)),
+             resids = list(bind_cols(data, 
+                                    resids = resid(model),
+                                    fitted = fitted(model), name = FA, 
+                                    )))|>
   select(-AIC,-BIC,-logLik,-deviance)
 
 peri_areal_resids<-map(peri_areal_lms$resids, ~(ggplot(data = ., 
@@ -218,44 +236,43 @@ peri_areal_resids
 
 options(digits = 3)
   
-areal_lm_table<-peri_areal_lms|>mutate(coef2 = map(coefs, ~select(.,term,estimate)|>pivot_wider(id_cols=everything(), 
-                                                                                      values_from = "estimate", 
-                                                                                      names_from = "term")))|>unnest(coef2)|>select(-df,-df.residual,-sigma,-r.squared,-nobs,-coefs,-vif,-resids)|>
+areal_lm_table<-peri_areal_lms|>mutate(coef2 = map(coefs, ~select(.,term,estimate)|>pivot_wider(id_cols=everything(), values_from = "estimate", names_from = "term")))|>unnest(coef2)|>
+  select(-df,-df.residual,-statistic,-sigma,-r.squared,-nobs,-coefs,-vif,-resids)|>
   rename(`Overall R2` = "adj.r.squared",
          #`F statistic` = "statistic",
          `Overall P` = "p.value", 
           `LNH P` = "p.val_lnh",
          `LNH partial R2` = "pR2_lnh",
-         Ecoregion = "EcoRegionSpringfield_Plateau",
-         `Canopy Cover (%)` = "Canopy_Cover_per",
-         `NO3 (ug/L)` = "NO3_ug.L")|>arrange(desc(`LNH partial R2`))
+         `Beta_Ecoregion` = "EcoRegionSpringfield_Plateau",
+         `Ecoregion partial R2` = "pR2_ecoregion",
+         `Beta_Canopy Cover` = "Canopy_Cover_per",
+         `Beta_NO3` = "NO3_ug.L")|>arrange(desc(`LNH partial R2`))|>
+  mutate(Basis = "Areal")|>relocate(Basis)
 
-areal_lm_table_outlier<-peri_areal_lms_outlier|>mutate(coef2 = map(coefs, ~select(.,term,estimate)|>pivot_wider(id_cols=everything(), 
-                                                                                      values_from = "estimate", 
-                                                                                      names_from = "term")))|>unnest(coef2)|>select(-df,-df.residual,-sigma,-r.squared,-nobs,-coefs,-vif)|>
+areal_lm_table_outlier<-peri_areal_lms_outlier|>mutate(coef2 = map(coefs, ~select(.,term,estimate)|>pivot_wider(id_cols=everything(),                                                                                       values_from = "estimate",                                                                                      names_from ="term")))|>
+  unnest(coef2)|>select(-df,-df.residual,-statistic,-sigma,-r.squared,-nobs,-coefs,-vif)|>
   rename(`Overall R2` = "adj.r.squared",
          #`F statistic` = "statistic",
          `Overall P` = "p.value", 
-          `LNH partial P` = "p.val_lnh",
+          `LNH P` = "p.val_lnh",
          `LNH partial R2` = "pR2_lnh",
-         Ecoregion = "EcoRegionSpringfield_Plateau",
-         `Canopy Cover (%)` = "Canopy_Cover_per",
-         `NO3 (ug/L)` = "NO3_ug.L")|>arrange(desc(`LNH partial R2`))
+         `Beta_Ecoregion` = "EcoRegionSpringfield_Plateau",
+         `Ecoregion partial R2` = "pR2_ecoregion",
+         `Beta_Canopy Cover` = "Canopy_Cover_per",
+         `Beta_NO3` = "NO3_ug.L")|>arrange(desc(`LNH partial R2`))|>
+  mutate(Basis = "Areal")|>relocate(Basis)
                                          
                                          
-
-areal_lm_table|>write_csv(here("analysis/paper/Table1A_PeriAreal_linmod.csv"))
-#areal_lm_table_outlier|>write_csv(here("analysis/paper/TableS1A_PeriAreal_linmod-outlier.csv"))
-
+areal_lm_table
 ```
-LNH explained reasonable variation in the areal quantities of a few FA groups, specifically LSAFA (R^2=0.48, P= 0.011), Total FAs (R^2=0.43, P= 0.029), w3/w6 (R^2=0.34, P= 0.052), and DHA (R^2=0.30, P= 0.016). 10-20% of the variation in sumPUFAs, EPA, and ARA was explained by LNH. Examination of the residuals for LSAFA suggested one site (Mill) was an outlier and potentially driving the LNH relationship. Without this site, the LSAFA variation explained by LNH decreased to R^2 = 0.30 (P = 0.09). 
+
 
 
 ```{r percent lms}
 peri_per_lms <- FA_groups_per|>
   filter(Type == "Periphyton")|>
   mutate(w3_w6 = log(w3_w6))|> #log transform because response is a ratio - Isles 202x
-  #filter(Site != "Diles")|>
+ # filter(Site != "Diles")|>
   pivot_longer(c(LSAFA,ARA,w3_w6,EPA, DHA, per_PUFA),values_to = "FA_per", names_to = "FA")|>mutate(FA = as_factor(FA))|>
   nest_by(FA)|>
   mutate(model = list(lm(FA_per ~ EcoRegion+Canopy_Cover_per+NO3_ug.L, data = data)),
@@ -279,9 +296,8 @@ peri_per_resids<-map(peri_per_lms$resids, ~(ggplot(data = .,
 
 peri_per_resids
 
-per_lm_table<-peri_per_lms|>mutate(coef2 = map(coefs, ~select(.,term,estimate)|>pivot_wider(id_cols=everything(), 
-                                                                                      values_from = "estimate", 
-                                                                                      names_from = "term")))|>unnest(coef2)|>select(-df,-df.residual,-statistic,-sigma,-r.squared,-nobs,-coefs,-vif,-resids)|>
+per_lm_table<-peri_per_lms|>mutate(coef2 = map(coefs, ~select(.,term,estimate)|>pivot_wider(id_cols=everything(),  values_from = "estimate",names_from = "term")))|>unnest(coef2)|>
+  select(-df,-df.residual,-statistic,-sigma,-r.squared,-nobs,-coefs,-vif,-resids)|>
   rename(`Overall R2` = "adj.r.squared",
          #`F statistic` = "statistic",
          `Overall P` = "p.value", 
@@ -290,15 +306,15 @@ per_lm_table<-peri_per_lms|>mutate(coef2 = map(coefs, ~select(.,term,estimate)|>
          `Beta_Ecoregion` = "EcoRegionSpringfield_Plateau",
          `Ecoregion partial R2` = "pR2_ecoregion",
          `Beta_Canopy Cover` = "Canopy_Cover_per",
-         `Beta_NO3` = "NO3_ug.L")|>arrange(desc(`LNH partial R2`))
+         `Beta_NO3` = "NO3_ug.L")|>arrange(desc(`LNH partial R2`))|>
+  mutate(Basis = "Percent")|>relocate(Basis)
 
 
-per_lm_table|>write_csv(here("analysis/paper/Table1B_PeriPer_linmod.csv"))
+bind_rows(areal_lm_table, per_lm_table)|>write_csv(here("analysis/paper/figures_and_tables/Table1_Peri_linmod.csv"))
+
+per_lm_table
+areal_lm_table
 ```
-Similar to the areal quantities, LNH explained substantial variation in %LSAFA (R^2 = 0.48, P=0.03), with partial slopes of 0.01 %LSAFA per canopy cover (percent) and 0.0015 %LSAFA per NO3 (ug/L). However, examination of residuals of the LSAFA regression suggested one site (Diles) was a strong outlier, and removal of this site strongly reduced the explanatory power of LNH for %LSAFA (R^2 = 0.20, P=0.37). LNH also explained fair variation in the w3:w6 ratio (R2 = 0.3, P = 0.05). %PUFAs were generally poorly explained by LNH. In particular, the explained variation for total %PUFA concentration and EPA were <0.03. Instead, Ecoregion explained a sizable portion of the variation in %EPA and %PUFA (R^2 = 0.5 and 0.42 respectively).
-
-
-
 
 
 
@@ -316,19 +332,19 @@ peri_group_com_per<-FA_groups_per|>
 peri_env_per <- FA_groups_per|>
   filter(Type == "Periphyton")|>
   select(Canopy_Cover_per, NO3_ug.L, EcoRegion)|>
-  mutate(EcoRegion = as_factor(EcoRegion))
+  mutate(ER_ = as_factor(EcoRegion))
 #community matrix same as NMDS above: peri_group_com
 peri_group_per <- peri_group_com_per|>select(-Site)
 
-peri_per.rda <- rda(peri_group_per ~ EcoRegion+NO3_ug.L+Canopy_Cover_per, data = peri_env_per, scale = TRUE)
+peri_per.rda <- rda(peri_group_per ~ Condition(ER_)+NO3_ug.L+Canopy_Cover_per, data = peri_env_per, scale = TRUE)
 
-anova(peri_per.rda, by = "term",permutations = how(nperm=9999))
+anova(peri_per.rda, by = "axis",permutations = how(nperm=9999))
 summary(peri_per.rda)
+RsquareAdj(peri_per.rda)
 plot(peri_per.rda, scaling = 1,display = c("sp", "wa", "cn"))
 plot(peri_per.rda, scaling = 2,display = c("sp", "wa", "cn"))
 
 ```
-RDA suggested that only Ecoregion, not NO3 or Canopy Cover, strongly predicted
 ```{r peri areal RDA}
 
 
@@ -345,7 +361,7 @@ peri_group_are <- peri_group_com_are|>select(-Site)
 
 
 
-peri_are.rda <- rda(peri_group_are ~ EcoRegion+NO3_ug.L+Canopy_Cover_per, data = peri_env_are, scale = TRUE)
+peri_are.rda <- rda(peri_group_are ~ Condition(EcoRegion)+NO3_ug.L+Canopy_Cover_per, data = peri_env_are, scale = TRUE)
 
 anova(peri_are.rda, by = "term",permutations = how(nperm=9999))
 summary(peri_are.rda)
@@ -353,7 +369,7 @@ plot(peri_are.rda, scaling = 1,display = c("sp", "wa", "cn"))
 plot(peri_are.rda, scaling = 2,display = c("sp", "wa", "cn"))
 
 ```
-After accounting for ecoregional differences, Canopy cover and NO3 had limited influence on periphyton fatty acid composition. This was only significant when periphyton components were expressed as percents, associating most strongly with LSAFA and ALA. When FA components were expressed as areal units, there was no overall effect.
+
 
 
 
