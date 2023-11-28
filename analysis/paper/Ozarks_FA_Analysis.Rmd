@@ -356,14 +356,14 @@ peri_env_are <- FA_groups_areal|>
   filter(Type == "Periphyton")|>
   select(Canopy_Cover_per, NO3_ug.L, SRP_ug.L, EcoRegion, Hay_per)|>
   mutate(EcoRegion = as_factor(EcoRegion))
-#community matrix same as NMDS above: peri_group_com
+
 peri_group_are <- peri_group_com_are|>select(-Site)
 
 
 
 peri_are.rda <- rda(peri_group_are ~ Condition(EcoRegion)+NO3_ug.L+Canopy_Cover_per, data = peri_env_are, scale = TRUE)
 
-anova(peri_are.rda, by = "term",permutations = how(nperm=9999))
+anova(peri_are.rda, by = "axis",permutations = how(nperm=9999))
 summary(peri_are.rda)
 plot(peri_are.rda, scaling = 1,display = c("sp", "wa", "cn"))
 plot(peri_are.rda, scaling = 2,display = c("sp", "wa", "cn"))
