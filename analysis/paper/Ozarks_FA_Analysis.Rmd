@@ -776,7 +776,7 @@ invert_shred_chllms <- invert_per_shred|>
 lmm1 <- ffg_inverts|>
   pivot_longer(c(LSAFA,ARA,w3_w6,EPA, DHA, per_PUFA),values_to = "FA_per", names_to = "FA")|>mutate(FA = as_factor(FA))|>
   nest_by(FA)|>
-  mutate(model = list(lmer(FA_per ~ Canopy_Cover_per*FFG+NO3_ug.L*FFG+(1|FFG/Taxon), data = data)),
+  mutate(model = list(lmer(FA_per ~ Canopy_Cover_per*FFG+NO3_ug.L*FFG+(1|Taxon), data = data)),
          model_lm = list(lm(FA_per ~ Canopy_Cover_per*FFG+NO3_ug.L*FFG, data = data)),
          model_reduced = list(lmer(FA_per ~ 1 + FFG + (1|Taxon), data = data)))|>
   summarize(glance(model), 
@@ -790,7 +790,8 @@ lmm1 <- ffg_inverts|>
                                     fitted = fitted(model), name = FA, 
                                     )),
            predicted_values_lmm = list(modelr::data_grid(data, Canopy_Cover_per, NO3_ug.L,nesting(Taxon,FFG))|>modelr::add_predictions(model)|>rename("{FA}" := "pred")),
-           predicted_values_lm = list(modelr::data_grid(data, Canopy_Cover_per, NO3_ug.L,FFG)|>modelr::add_predictions(model_lm)|>rename("{FA}" := "pred")))|>
+           predicted_values_lm = list(modelr::data_grid(data, Canopy_Cover_per, NO3_ug.L,FFG)|>modelr::add_predictions(model_lm)|>rename("{FA}" := "pred")),
+           lmm_perf = list(performance::model_performance(model)))|>
   select(-AIC,-BIC,-logLik)
 
 ggplot()+
@@ -806,12 +807,18 @@ ggplot()+
   facet_wrap(.~FFG, scales = "free")
 
 ggplot()+
+  geom_smooth(data = lmm1[[11]][[3]], aes(y = w3_w6, x = NO3_ug.L, group = FFG),color = "black", se = FALSE)+
+  geom_smooth(data = lmm1[[11]][[3]], aes(y = w3_w6, x = NO3_ug.L, color = Taxon), se = FALSE)+
+  geom_point(data = ffg_inverts,aes(y = w3_w6,x = NO3_ug.L, color = Taxon, shape = FFG))+
+  facet_wrap(.~FFG, scales = "free")
+
+ggplot()+
   geom_smooth(data = lmm1[[12]][[4]], aes(y = EPA, x = Canopy_Cover_per, group = FFG), se = FALSE)+
   geom_point(data = ffg_inverts,aes(y = EPA,x = Canopy_Cover_per, color = FFG))+
   facet_wrap(.~FFG, scales = "free")
 ```
 
-Remember it's worth just modeling the intercepts!!! That variation among groups and taxa is very interesting
+Remember it's worth just modeling the intercepts!!! That variation among groups and taxa is very interesting. Particularly when it's much larger than the variation due to environmental gradients
 ```{r pull emmeans lmm}
 #library(emmeans)
 
