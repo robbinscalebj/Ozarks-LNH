@@ -1,0 +1,145 @@
+---
+title: "Dirichlet Bayes"
+author: "CJR"
+date: "2023-12-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(here)
+library(brms)
+```
+
+
+```{r}
+FA <- read_csv(here("analysis/data/derived_data/FA_all_tidied.csv"))|>
+  select(where(~ any(. != 0)))
+
+
+FA_groups_per <- FA|> 
+  mutate(total_FA = rowSums(across(4:40)))|>
+  mutate(across(4:40, ~./total_FA), .keep = "unused")|>
+  rowwise()|>
+  mutate(MUFA = sum(c_across(contains(":1"))),
+         #MUFA_16 = sum(c_across(contains("16:1"))),
+         #MUFA_18 = sum(c_across(contains("18:1"))),
+         SAFA = sum(c_across(c(matches(":0"),-matches("i-"),-c(`22:0`, `24:0`,`23:0`)))),
+         LSAFA = sum(c_across(c(`22:0`, `24:0`,`23:0`))),
+         brFA = sum(c_across(contains("i-"))),
+         diatom_16PUFA = sum(c_across(c(`16:2w7`,`16:3w4`, `16:4w1`))),
+         green_16PUFA = sum(c_across(c(`16:3w3`,`16:4w3`,`16:2w6`))),
+         EPA = `20:5w3`,
+         DHA = `22:6w3`,
+         DPA = `22:5w3`,
+         LIN = `18:2w6`,
+         SDA = `18:4w3`,
+         ALA = `18:3w3`,
+         ARA = `20:4w6`,
+         GLA = `18:3w6`, .keep = "all", .after = Type)|>
+  select(Site,Taxon, Type, MUFA, SAFA,LSAFA,brFA,diatom_16PUFA,green_16PUFA, `20:2w6`,
+         EPA,DHA,DPA,LIN,SDA,ALA,ARA,GLA, Canopy_Cover_per, NO3_ug.L)|>
+  mutate(sum_fa_per = rowSums(across(4:18)), .before = MUFA)|>
+  filter(Type == "Periphyton")|>
+  select(-Type,-Taxon,-Site)|>
+  rename(that_fa = `20:2w6`)|>
+  mutate(across(2:16, ~./sum_fa_per))|>
+  select(-sum_fa_per)
+
+
+```
+
+
+
+
+```{r burkner example}
+bind <- function(...) cbind(...)
+
+N <- 20
+df <- data.frame(
+  y1 = rbinom(N, 10, 0.5), y2 = rbinom(N, 10, 0.7), 
+  y3 = rbinom(N, 10, 0.9), x = rnorm(N)
+) %>%
+  mutate(
+    size = y1 + y2 + y3,
+    y1 = y1 / size,
+    y2 = y2 / size,
+    y3 = y3 / size
+  )
+df$y <- with(df, cbind(y1, y2, y3))
+
+
+make_stancode(cbind(MUFA, SAFA,LSAFA,brFA,diatom_16PUFA,
+                    green_16PUFA, that_fa, EPA,DHA,DPA,LIN,SDA,ALA,ARA,GLA) ~ Canopy_Cover_per, FA_groups_per, dirichlet)
+
+fit <- brm(cbind(MUFA, SAFA,LSAFA,brFA,diatom_16PUFA,
+                    green_16PUFA, that_fa, EPA,DHA,DPA,LIN,SDA,ALA,ARA,GLA) ~ Canopy_Cover_per, data=FA_groups_per, dirichlet())
+
+```
+
+```{r}
+summary(fit)
+pp_check(fit, resp="EPA")
+
+blah <- posterior_predict(fit)
+ds_yrep1 <- FA_groups_per %>% 
+  #select(log_weight, log_gest_c) %>% 
+  add_predicted_draws(fit)
+
+blah <-ds_yrep1 %>% mutate(.draw = 1)
+
+ds_yrep1 |>
+  filter(.draw<200, .category == "EPA")|>
+  ggplot(aes(.prediction, group = .draw)) + 
+  geom_density(alpha = 0.2, aes(color = "y_rep")) + 
+  geom_density(data = ds_yrep1 %>% filter(.draw == 1), 
+               aes(x = EPA)) + 
+  theme_bw(base_size = 16)
+
+summed_df <- ds_yrep1|>filter(.draw<=100)|>group_by(.category)|>
+  mutate(med_pred = median(.prediction),
+         pred_95 = quantile(.prediction, 0.95),
+         pred_05 = quantile(.prediction, 0.05))
+
+ggplot()+
+  geom_line(data = summed_df,aes(x = Canopy_Cover_per, y = med_pred))+
+  geom_line(data = summed_df,aes(x = Canopy_Cover_per, y = pred_95), linetype = "dashed")+
+  geom_line(data = summed_df,aes(x = Canopy_Cover_per, y = pred_05), linetype = "dashed")+
+  facet_wrap(.~.category, scales = "free")
+
+```
+
+
+```{r}
+FA_analysis <- FA_groups_per
+FA_analysis$Y <- DR_data(FA_analysis[,1:15])
+dr_1 <- DirichReg(Y ~ Canopy_Cover_per+NO3_ug.L|Canopy_Cover_per+NO3_ug.L, FA_analysis, model = "alternative")
+dr_2 <- DirichReg(Y ~ 1|Canopy_Cover_per+NO3_ug.L, FA_analysis, model = "alternative")
+dr_3 <- DirichReg(Y ~ 1, FA_analysis, model = "alternative")
+dr_4 <- DirichReg(Y ~ Canopy_Cover_per, FA_analysis, model = "alternative")
+dr_5 <- DirichReg(Y ~ NO3_ug.L, FA_analysis, model = "alternative")
+
+summary(dr_1)
+new_data <- expand_grid(Canopy_Cover_per = seq(0,100, by = 10),
+                        NO3_ug.L = seq(0,460, by = 10))|>
+  filter(NO3_ug.L %in% c(10,200,460))
+dir_confint <- confint(dr_1)
+dir_fitted <- predict(dr_1,newdata=new_data)
+colnames(dir_fitted)<-colnames(FA_analysis$Y)
+dir_fitted2 <- bind_cols(dir_fitted, new_data)|>
+  pivot_longer(c(1:15),values_to = "predicted", names_to = "FA")|>
+  mutate(FA = as_factor(FA), NO3_ug.L = as_factor(NO3_ug.L))
+
+ggplot()+
+  geom_line(data = dir_fitted2, aes(x = Canopy_Cover_per, y = predicted, linetype = NO3_ug.L))+
+  geom_point(data=FA_groups_per|>pivot_longer(c(1:15), values_to = "value", names_to = "FA"), aes(x = Canopy_Cover_per, y = value, color = NO3_ug.L))+
+  facet_wrap(.~FA, scales = "free")
+  
+dir_confint$ci[[1]]
+```
+
+```{r}
+blah <- emmeans(fit)
+
+```
