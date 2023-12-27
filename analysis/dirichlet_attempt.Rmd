@@ -10,6 +10,8 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(here)
 library(brms)
+library(tictoc)
+library(DirichletReg)
 ```
 
 
@@ -28,25 +30,22 @@ FA_groups_per <- FA|>
          SAFA = sum(c_across(c(matches(":0"),-matches("i-"),-c(`22:0`, `24:0`,`23:0`)))),
          LSAFA = sum(c_across(c(`22:0`, `24:0`,`23:0`))),
          brFA = sum(c_across(contains("i-"))),
-         diatom_16PUFA = sum(c_across(c(`16:2w7`,`16:3w4`, `16:4w1`))),
-         green_16PUFA = sum(c_across(c(`16:3w3`,`16:4w3`,`16:2w6`))),
-         EPA = `20:5w3`,
-         DHA = `22:6w3`,
-         DPA = `22:5w3`,
-         LIN = `18:2w6`,
+         algal_16PUFA = sum(c_across(c(`16:2w7`,`16:3w4`, `16:4w1`,`16:3w3`,`16:4w3`,`16:2w6`))),
+         HUFA = sum(c_across(c(`20:5w3`,`22:6w3`,`22:5w3`))),
+         LIN_EDA = sum(c_across(c(`18:2w6`,`20:2w6`))), #LIN can be elongated to EDA
          SDA = `18:4w3`,
          ALA = `18:3w3`,
          ARA = `20:4w6`,
          GLA = `18:3w6`, .keep = "all", .after = Type)|>
-  select(Site,Taxon, Type, MUFA, SAFA,LSAFA,brFA,diatom_16PUFA,green_16PUFA, `20:2w6`,
-         EPA,DHA,DPA,LIN,SDA,ALA,ARA,GLA, Canopy_Cover_per, NO3_ug.L)|>
-  mutate(sum_fa_per = rowSums(across(4:18)), .before = MUFA)|>
+  select(Site,Taxon, Type, MUFA, SAFA,LSAFA,brFA,algal_16PUFA,
+         HUFA,LIN_EDA,SDA,ALA,ARA,GLA, Canopy_Cover_per, NO3_ug.L, EcoRegion)|>
+  mutate(sum_fa_per = rowSums(across(4:14)), .before = MUFA)|>
   filter(Type == "Periphyton")|>
   select(-Type,-Taxon,-Site)|>
-  rename(that_fa = `20:2w6`)|>
-  mutate(across(2:16, ~./sum_fa_per))|>
-  select(-sum_fa_per)
-
+  mutate(across(2:12, ~./sum_fa_per))|>
+  select(-sum_fa_per)|>ungroup()|>
+  mutate(scaled_no3 = scale(NO3_ug.L)[,1],
+         scaled_canopy = scale(Canopy_Cover_per)[,1]) #scaling helps reg models
 
 ```
 
@@ -56,26 +55,22 @@ FA_groups_per <- FA|>
 ```{r burkner example}
 bind <- function(...) cbind(...)
 
-N <- 20
-df <- data.frame(
-  y1 = rbinom(N, 10, 0.5), y2 = rbinom(N, 10, 0.7), 
-  y3 = rbinom(N, 10, 0.9), x = rnorm(N)
-) %>%
-  mutate(
-    size = y1 + y2 + y3,
-    y1 = y1 / size,
-    y2 = y2 / size,
-    y3 = y3 / size
-  )
-df$y <- with(df, cbind(y1, y2, y3))
+
 
 
 make_stancode(cbind(MUFA, SAFA,LSAFA,brFA,diatom_16PUFA,
                     green_16PUFA, that_fa, EPA,DHA,DPA,LIN,SDA,ALA,ARA,GLA) ~ Canopy_Cover_per, FA_groups_per, dirichlet)
 
-fit <- brm(cbind(MUFA, SAFA,LSAFA,brFA,diatom_16PUFA,
-                    green_16PUFA, that_fa, EPA,DHA,DPA,LIN,SDA,ALA,ARA,GLA) ~ Canopy_Cover_per, data=FA_groups_per, dirichlet())
 
+tic()
+fit2 <- brm(cbind(MUFA, SAFA,LSAFA,brFA,algal_16PUFA,
+         HUFA,LIN_EDA,SDA,ALA,ARA,GLA) ~ scaled_canopy+scaled_no3, data=FA_groups_per, dirichlet())
+toc()
+
+tic()
+fit3 <- brm(cbind(MUFA, SAFA,LSAFA,brFA,algal_16PUFA,
+         HUFA,LIN_EDA,SDA,ALA,ARA,GLA) ~ scaled_canopy+scaled_no3+EcoRegion, data=FA_groups_per, gaussian())
+toc()
 ```
 
 ```{r}
@@ -113,27 +108,35 @@ ggplot()+
 
 ```{r}
 FA_analysis <- FA_groups_per
-FA_analysis$Y <- DR_data(FA_analysis[,1:15])
-dr_1 <- DirichReg(Y ~ Canopy_Cover_per+NO3_ug.L|Canopy_Cover_per+NO3_ug.L, FA_analysis, model = "alternative")
-dr_2 <- DirichReg(Y ~ 1|Canopy_Cover_per+NO3_ug.L, FA_analysis, model = "alternative")
+FA_analysis$Y <- DR_data(FA_analysis[,1:11])
+dr_1 <- DirichReg(Y ~ scaled_canopy+scaled_no3|scaled_canopy+scaled_no3, FA_analysis, model = "alternative")
+dr_2 <- DirichReg(Y ~ 1|scaled_canopy+scaled_no3, FA_analysis, model = "alternative")
 dr_3 <- DirichReg(Y ~ 1, FA_analysis, model = "alternative")
-dr_4 <- DirichReg(Y ~ Canopy_Cover_per, FA_analysis, model = "alternative")
-dr_5 <- DirichReg(Y ~ NO3_ug.L, FA_analysis, model = "alternative")
+dr_4 <- DirichReg(Y ~ scaled_canopy, FA_analysis, model = "alternative")
+dr_5 <- DirichReg(Y ~ scaled_no3, FA_analysis, model = "alternative")
+dr_6 <- DirichReg(Y ~ scaled_canopy+scaled_no3, FA_analysis, model = "alternative")
+
+anova(dr_1,dr_2,dr_3,dr_4,dr_5)
 
 summary(dr_1)
-new_data <- expand_grid(Canopy_Cover_per = seq(0,100, by = 10),
-                        NO3_ug.L = seq(0,460, by = 10))|>
+new_data <- expand_grid(scaled_canopy = seq(0,100, by = 10),
+                        scaled_no3 = seq(0,460, by = 10))|>
   filter(NO3_ug.L %in% c(10,200,460))
+
+new_data <- expand_grid(scaled_canopy = seq(-2,2, by = 0.2),
+                        scaled_no3 = seq(-1,2, by = 0.2))|>
+  mutate(scaled_no3 = as_factor(scaled_no3))|>
+  filter(scaled_no3 %in% c(-1.0,0.4,1.8))|>mutate(scaled_no3 = as.numeric(as.character(scaled_no3)))
 dir_confint <- confint(dr_1)
-dir_fitted <- predict(dr_1,newdata=new_data)
+dir_fitted <- predict(dr_6,newdata=new_data)
 colnames(dir_fitted)<-colnames(FA_analysis$Y)
 dir_fitted2 <- bind_cols(dir_fitted, new_data)|>
-  pivot_longer(c(1:15),values_to = "predicted", names_to = "FA")|>
-  mutate(FA = as_factor(FA), NO3_ug.L = as_factor(NO3_ug.L))
+  pivot_longer(c(1:11),values_to = "predicted", names_to = "FA")|>
+  mutate(FA = as_factor(FA), scaled_no3 = as_factor(scaled_no3))
 
 ggplot()+
-  geom_line(data = dir_fitted2, aes(x = Canopy_Cover_per, y = predicted, linetype = NO3_ug.L))+
-  geom_point(data=FA_groups_per|>pivot_longer(c(1:15), values_to = "value", names_to = "FA"), aes(x = Canopy_Cover_per, y = value, color = NO3_ug.L))+
+  geom_line(data = dir_fitted2, aes(x = scaled_canopy, y = predicted, linetype = scaled_no3))+
+  geom_point(data=FA_groups_per|>pivot_longer(c(1:11), values_to = "value", names_to = "FA"), aes(x = scaled_canopy, y = value, color = scaled_no3))+
   facet_wrap(.~FA, scales = "free")
   
 dir_confint$ci[[1]]
