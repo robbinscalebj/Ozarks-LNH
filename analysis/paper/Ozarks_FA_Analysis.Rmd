@@ -211,7 +211,8 @@ peri_areal_lms <- FA_groups_areal|>
          model_reduced =  list(lm(FA_per ~ EcoRegion, data = data)))|>
   summarize(glance(model), 
             deltar2_summary = list(tidy(rockchalk::getDeltaRsquare(model))),
-            #partr2_summary = list(tidy(partR2::partR2(model))),
+            deltaR2_calc = rsq::rsq(model)-rsq::rsq(model_reduced),
+            modR2_red = rsq::rsq(model_reduced),
             coefs = list(tidy(model)|>filter(term != "(Intercept)")), 
             vif = list(tibble(vif(model))),
             p.val_lnh= anova(model,model_reduced)[[6]][[2]],
@@ -232,6 +233,8 @@ peri_areal_lms_outlier <- FA_groups_areal|>
   mutate(model = ifelse(FA %in% c("brFA", "LSAFA"), list(lm(FA_per ~ EcoRegion+Canopy_Cover_per+NO3_ug.L, data = data[data$Site!="Mill",])), list(lm(FA_per ~ EcoRegion+Canopy_Cover_per+NO3_ug.L, data = data))),
          model_reduced = ifelse(FA %in% c("brFA", "LSAFA"), list(lm(FA_per ~ EcoRegion, data = data[data$Site!="Mill",])), list(lm(FA_per ~ EcoRegion, data = data))))|>
  summarize(glance(model), 
+            deltar2_summary = list(tidy(rockchalk::getDeltaRsquare(model))),
+            deltaR2_calc = rsq::rsq(model)-rsq::rsq(model_reduced),
             coefs = list(tidy(model)|>filter(term != "(Intercept)")), 
             vif = list(tibble(vif(model))),
             p.val_lnh= anova(model,model_reduced)[[6]][[2]],
@@ -795,11 +798,12 @@ lmm1 <- ffg_inverts|>
   pivot_longer(c(LSAFA,ARA,w3_w6,EPA, DHA, per_PUFA),values_to = "FA_per", names_to = "FA")|>mutate(FA = as_factor(FA))|>
   nest_by(FA)|>
   mutate(#model = list(lmer(FA_per ~ Canopy_Cover_per*FFG+NO3_ug.L*FFG+(1|Taxon), data = data)),
-         model = list(lm(FA_per ~ Canopy_Cover_per*NO3_ug.L+Taxon, data = data)),
-         model_reduced = list(lm(FA_per ~ Canopy_Cover_per*NO3_ug.L, data = data)),
+         model = list(lm(FA_per ~ Canopy_Cover_per/Taxon+NO3_ug.L/Taxon + Taxon, data = data)),
+         model_reduced = list(lm(FA_per ~ Taxon, data = data)),
          model_taxon = list(lm(FA_per ~ Taxon, data = data)))|>
   summarize(glance(model),
             partr2 = list(tidy(rockchalk::getDeltaRsquare(model))),
+            R2_calc = rsq::rsq(model)-rsq::rsq(model_reduced),
             R2_model = rsq::rsq(model), 
             R2_reduced = rsq::rsq(model_reduced),
             R2_taxon = rsq::rsq(model_taxon),
