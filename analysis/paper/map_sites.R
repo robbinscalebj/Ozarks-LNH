@@ -29,13 +29,13 @@ state_labs <- tibble(name = c("Arkansas", "Missouri"), lat = c(36.4,36.6), lon =
 
 #terr_map <- get_map(location = c(lat = 36, lon = -92), maptype = "satellite", zoom =7)
 
-ggmap(terr_map)+
+site_map.p <- ggmap(terr_map)+
   geom_sf(data = er_shp, aes(color = NA_L3NAME, fill = NA_L3NAME),
           inherit.aes = FALSE, alpha = 0.1, linewidth = 2)+
   geom_sf(data = armo, inherit.aes = FALSE, alpha = 0,
           color = "black", linewidth = 1.5)+
   geom_point(data = sites, aes(y = lat, x = lon, fill = EcoRegion),
-             inherit.aes = FALSE,  size = 5, shape = 21, color = "black")+
+             inherit.aes = FALSE,  size = 5, shape = 21, color = "black", alpha = 0.75)+
   scale_fill_jco()+
   scale_color_jco()+
   scale_y_continuous(limits = c(35,37))+
@@ -49,3 +49,7 @@ ggmap(terr_map)+
         legend.position = c(0.78,0.15),
         legend.background = element_blank(),
         legend.text = element_text(size = 18, face = "bold"))
+
+
+ggsave(site_map.p, filename = here("analysis/paper/figures_and_tables/Fig1_site_map.jpeg"),
+       height = 6.5, width = 9.5)

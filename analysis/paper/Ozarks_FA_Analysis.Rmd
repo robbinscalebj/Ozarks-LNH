@@ -127,7 +127,7 @@ peri_area.p <- FA_groups_areal|>
   geom_point(size = 3, alpha = 0.5)+
   scale_y_log10(breaks = c(0.0002,0.01,0.1,1, 10, 200), labels = c("0.0002","0.01","0.1", "1", "10", "200"))+
   theme_bw()+
-  ylab(bquote("Fatty Acid (mg ∙"~m^2~")"))+ #ALT +249 gives multiplication dot
+  ylab(bquote("Fatty Acid (mg ∙"~m^-2~")"))+ #ALT +249 gives multiplication dot
   theme(axis.text.x = element_text(angle = 90, size = 15, face = "bold", vjust = 0.5), axis.title.x = element_blank(),
         axis.text.y = element_text(size = 15, face = "bold"), axis.title.y = element_text(size = 18, face = "bold"))
 peri_area.p
@@ -155,7 +155,7 @@ peri_fa.p<-plot_grid(peri_area.p, peri_per.p, nrow = 2, labels = "AUTO", label_x
                      label_size = 18)
 peri_fa.p
 
-ggsave(peri_fa.p, filename = here("analysis/paper/figures_and_tables/Fig1_Peri-FAs.jpeg"),
+ggsave(peri_fa.p, filename = here("analysis/paper/figures_and_tables/Fig2_Peri-FAs.jpeg"),
        height = 6.5, width = 9.5)
 ```
 
@@ -208,16 +208,15 @@ peri_areal_lms <- FA_groups_areal|>
   pivot_longer(c(LSAFA,ARA, Tot_FA, EPA, DHA, sum_PUFA),values_to = "FA_per", names_to = "FA")|>mutate(FA = as_factor(FA))|>
   nest_by(FA)|>
   mutate(model = list(lm(FA_per ~ EcoRegion+NO3_ug.L+Canopy_Cover_per, data = data)),
-         model_reduced =  list(lm(FA_per ~ EcoRegion, data = data)))|>
+         model_reduced =  list(lm(FA_per ~ EcoRegion, data = data)),
+         model_reduced_no3 =  list(lm(FA_per ~ EcoRegion+NO3_ug.L, data = data)),
+         model_reduced_can =  list(lm(FA_per ~ EcoRegion+Canopy_Cover_per, data = data)))|>
   summarize(glance(model), 
-            deltar2_summary = list(tidy(rockchalk::getDeltaRsquare(model))),
-            deltaR2_calc = rsq::rsq(model)-rsq::rsq(model_reduced),
-            modR2_red = rsq::rsq(model_reduced),
-            coefs = list(tidy(model)|>filter(term != "(Intercept)")), 
-            vif = list(tibble(vif(model))),
-            p.val_lnh= anova(model,model_reduced)[[6]][[2]],
-            Anova(model, type = 2)|>as_tibble(rownames = "term")|>rename(ss= `Sum Sq`)|>mutate(sum_ss = sum(ss), pss = ss/sum_ss)|>filter(term %in% c("Canopy_Cover_per","NO3_ug.L"))|>summarize(pR2_lnh = sum(pss)),
-            Anova(model, type = 2)|>as_tibble(rownames = "term")|>rename(ss= `Sum Sq`)|>mutate(sum_ss = sum(ss), pss = ss/sum_ss)|>filter(term %in% c("EcoRegion"))|>summarize(pR2_ecoregion = sum(pss)),
+            coefs = list(tidy(model)|>filter(term != "(Intercept)")),
+            partR2_LNH = rsq::rsq(model)-rsq::rsq(model_reduced),
+            partR2_Canopy = rsq::rsq(model)-rsq::rsq(model_reduced_no3),
+            partR2_NO3 = rsq::rsq(model)-rsq::rsq(model_reduced_can),
+            pval_LNH= anova(model,model_reduced)[[6]][[2]],
              resids = list(bind_cols(data, 
                                     resids = resid(model),
                                     fitted = fitted(model), name = FA, 
@@ -227,23 +226,23 @@ peri_areal_lms <- FA_groups_areal|>
 
 peri_areal_lms_outlier <- FA_groups_areal|>
   filter(Type == "Periphyton")|>
-  filter(Site != "Mill")|>
-  pivot_longer(c(LSAFA,ARA,Tot_FA, w3_w6,EPA, DHA, sum_PUFA),values_to = "FA_per", names_to = "FA")|>mutate(FA = as_factor(FA))|>
+  #filter(Site != "Mill")|>
+  pivot_longer(c(LSAFA,ARA, Tot_FA, EPA, DHA, sum_PUFA),values_to = "FA_per", names_to = "FA")|>mutate(FA = as_factor(FA))|>
   nest_by(FA)|>
   mutate(model = ifelse(FA %in% c("brFA", "LSAFA"), list(lm(FA_per ~ EcoRegion+Canopy_Cover_per+NO3_ug.L, data = data[data$Site!="Mill",])), list(lm(FA_per ~ EcoRegion+Canopy_Cover_per+NO3_ug.L, data = data))),
-         model_reduced = ifelse(FA %in% c("brFA", "LSAFA"), list(lm(FA_per ~ EcoRegion, data = data[data$Site!="Mill",])), list(lm(FA_per ~ EcoRegion, data = data))))|>
+         model_reduced = ifelse(FA %in% c("brFA", "LSAFA"), list(lm(FA_per ~ EcoRegion, data = data[data$Site!="Mill",])), list(lm(FA_per ~ EcoRegion, data = data))),
+         model_reduced_no3 = ifelse(FA %in% c("brFA", "LSAFA"), list(lm(FA_per ~ EcoRegion+NO3_ug.L, data = data[data$Site!="Mill",])), list(lm(FA_per ~ EcoRegion+NO3_ug.L, data = data))),
+         model_reduced_can = ifelse(FA %in% c("brFA", "LSAFA"), list(lm(FA_per ~ EcoRegion+Canopy_Cover_per, data = data[data$Site!="Mill",])), list(lm(FA_per ~ EcoRegion+Canopy_Cover_per, data = data))))|>
  summarize(glance(model), 
-            deltar2_summary = list(tidy(rockchalk::getDeltaRsquare(model))),
-            deltaR2_calc = rsq::rsq(model)-rsq::rsq(model_reduced),
-            coefs = list(tidy(model)|>filter(term != "(Intercept)")), 
-            vif = list(tibble(vif(model))),
-            p.val_lnh= anova(model,model_reduced)[[6]][[2]],
-            Anova(model, type = 2)|>as_tibble(rownames = "term")|>rename(ss= `Sum Sq`)|>mutate(sum_ss = sum(ss), pss = ss/sum_ss)|>filter(term %in% c("Canopy_Cover_per","NO3_ug.L"))|>summarize(pR2_lnh = sum(pss)),
-            Anova(model, type = 2)|>as_tibble(rownames = "term")|>rename(ss= `Sum Sq`)|>mutate(sum_ss = sum(ss), pss = ss/sum_ss)|>filter(term %in% c("EcoRegion"))|>summarize(pR2_ecoregion = sum(pss)),
-             resids = list(bind_cols(data, 
-                                    resids = resid(model),
-                                    fitted = fitted(model), name = FA, 
-                                    )))|>
+            coefs = list(tidy(model)|>filter(term != "(Intercept)")),
+            partR2_LNH = rsq::rsq(model)-rsq::rsq(model_reduced),
+            partR2_Canopy = rsq::rsq(model)-rsq::rsq(model_reduced_no3),
+            partR2_NO3 = rsq::rsq(model)-rsq::rsq(model_reduced_can),
+            pval_LNH= anova(model,model_reduced)[[6]][[2]],
+            # resids = list(bind_cols(data, 
+            #                        resids = resid(model),
+            #                        fitted = fitted(model), name = FA, 
+                                    )|>
   select(-AIC,-BIC,-logLik,-deviance)
 
 peri_areal_resids<-map(peri_areal_lms$resids, ~(ggplot(data = ., 
@@ -257,29 +256,30 @@ peri_areal_resids
 options(digits = 3)
   
 areal_lm_table<-peri_areal_lms|>mutate(coef2 = map(coefs, ~select(.,term,estimate)|>pivot_wider(id_cols=everything(), values_from = "estimate", names_from = "term")))|>unnest(coef2)|>
-  select(-df,-df.residual,-statistic,-sigma,-r.squared,-nobs,-coefs,-vif,-resids)|>
+  select(FA,adj.r.squared,p.value,partR2_LNH,pval_LNH,Canopy_Cover_per,partR2_Canopy,NO3_ug.L,partR2_NO3)|>
   rename(`Overall R2` = "adj.r.squared",
          #`F statistic` = "statistic",
-         `Overall P` = "p.value", 
-          `LNH P` = "p.val_lnh",
-         `LNH partial R2` = "pR2_lnh",
-         `Beta_Ecoregion` = "EcoRegionSpringfield_Plateau",
-         `Ecoregion partial R2` = "pR2_ecoregion",
+         `Overall P` = "p.value",
+         `LNH partR2` = "partR2_LNH", 
+          `LNH P` = "pval_LNH",
          `Beta_Canopy Cover` = "Canopy_Cover_per",
-         `Beta_NO3` = "NO3_ug.L")|>arrange(desc(`LNH partial R2`))|>
+         `Canopy partR2` = "partR2_Canopy",
+         `Beta_NO3` = "NO3_ug.L",
+         `NO3 partR2` = "partR2_NO3")|>arrange(desc(`LNH partR2`))|>
   mutate(Basis = "Areal")|>relocate(Basis)
 
 areal_lm_table_outlier<-peri_areal_lms_outlier|>mutate(coef2 = map(coefs, ~select(.,term,estimate)|>pivot_wider(id_cols=everything(),                                                                                       values_from = "estimate",                                                                                      names_from ="term")))|>
-  unnest(coef2)|>select(-df,-df.residual,-statistic,-sigma,-r.squared,-nobs,-coefs,-vif)|>
+  unnest(coef2)|>
+  select(FA,adj.r.squared,p.value,partR2_LNH,pval_LNH,Canopy_Cover_per,partR2_Canopy,NO3_ug.L,partR2_NO3)|>
   rename(`Overall R2` = "adj.r.squared",
          #`F statistic` = "statistic",
-         `Overall P` = "p.value", 
-          `LNH P` = "p.val_lnh",
-         `LNH partial R2` = "pR2_lnh",
-         `Beta_Ecoregion` = "EcoRegionSpringfield_Plateau",
-         `Ecoregion partial R2` = "pR2_ecoregion",
+         `Overall P` = "p.value",
+         `LNH partR2` = "partR2_LNH", 
+          `LNH P` = "pval_LNH",
          `Beta_Canopy Cover` = "Canopy_Cover_per",
-         `Beta_NO3` = "NO3_ug.L")|>arrange(desc(`LNH partial R2`))|>
+         `Canopy partR2` = "partR2_Canopy",
+         `Beta_NO3` = "NO3_ug.L",
+         `NO3 partR2` = "partR2_NO3")|>arrange(desc(`LNH partR2`))|>
   mutate(Basis = "Areal")|>relocate(Basis)
                                          
                                          
@@ -292,19 +292,19 @@ areal_lm_table
 peri_per_lms <- FA_groups_per|>
   filter(Type == "Periphyton")|>
   mutate(w3_w6 = log(w3_w6))|> #log transform because response is a ratio - Isles 202x
- # filter(Site != "Diles")|>
   pivot_longer(c(LSAFA,ARA,w3_w6,EPA, DHA, per_PUFA),values_to = "FA_per", names_to = "FA")|>mutate(FA = as_factor(FA))|>
   nest_by(FA)|>
-  mutate(model = list(lm(FA_per ~ EcoRegion+Canopy_Cover_per+NO3_ug.L, data = data)),
-         model_reduced = list(lm(FA_per ~ EcoRegion, data = data)))|>
+  mutate(model = list(lm(FA_per ~ EcoRegion+NO3_ug.L+Canopy_Cover_per, data = data)),
+         model_reduced =  list(lm(FA_per ~ EcoRegion, data = data)),
+         model_reduced_no3 =  list(lm(FA_per ~ EcoRegion+NO3_ug.L, data = data)),
+         model_reduced_can =  list(lm(FA_per ~ EcoRegion+Canopy_Cover_per, data = data)))|>
   summarize(glance(model), 
-            deltar2_summary = list(tidy(rockchalk::getDeltaRsquare(model))),
-            coefs = list(tidy(model)|>filter(term != "(Intercept)")), 
-            vif = list(tibble(vif(model))),
-            p.val_lnh= anova(model,model_reduced)[[6]][[2]],
-            Anova(model, type = 2)|>as_tibble(rownames = "term")|>rename(ss= `Sum Sq`)|>mutate(sum_ss = sum(ss), pss = ss/sum_ss)|>filter(term %in% c("Canopy_Cover_per","NO3_ug.L"))|>summarize(pR2_lnh = sum(pss)),
-            Anova(model, type = 2)|>as_tibble(rownames = "term")|>rename(ss= `Sum Sq`)|>mutate(sum_ss = sum(ss), pss = ss/sum_ss)|>filter(term %in% c("EcoRegion"))|>summarize(pR2_ecoregion = sum(pss)),
-            resids = list(bind_cols(data, 
+            coefs = list(tidy(model)|>filter(term != "(Intercept)")),
+            partR2_LNH = rsq::rsq(model)-rsq::rsq(model_reduced),
+            partR2_Canopy = rsq::rsq(model)-rsq::rsq(model_reduced_no3),
+            partR2_NO3 = rsq::rsq(model)-rsq::rsq(model_reduced_can),
+            pval_LNH= anova(model,model_reduced)[[6]][[2]],
+             resids = list(bind_cols(data, 
                                     resids = resid(model),
                                     fitted = fitted(model), name = FA, 
                                     )))|>
@@ -318,20 +318,20 @@ peri_per_resids<-map(peri_per_lms$resids, ~(ggplot(data = .,
 peri_per_resids
 
 per_lm_table<-peri_per_lms|>mutate(coef2 = map(coefs, ~select(.,term,estimate)|>pivot_wider(id_cols=everything(),  values_from = "estimate",names_from = "term")))|>unnest(coef2)|>
-  select(-df,-df.residual,-statistic,-sigma,-r.squared,-nobs,-coefs,-vif,-resids)|>
+  select(FA,adj.r.squared,p.value,partR2_LNH,pval_LNH,Canopy_Cover_per,partR2_Canopy,NO3_ug.L,partR2_NO3)|>
   rename(`Overall R2` = "adj.r.squared",
          #`F statistic` = "statistic",
-         `Overall P` = "p.value", 
-          `LNH P` = "p.val_lnh",
-         `LNH partial R2` = "pR2_lnh",
-         `Beta_Ecoregion` = "EcoRegionSpringfield_Plateau",
-         `Ecoregion partial R2` = "pR2_ecoregion",
+         `Overall P` = "p.value",
+         `LNH partR2` = "partR2_LNH", 
+          `LNH P` = "pval_LNH",
          `Beta_Canopy Cover` = "Canopy_Cover_per",
-         `Beta_NO3` = "NO3_ug.L")|>arrange(desc(`LNH partial R2`))|>
+         `Canopy partR2` = "partR2_Canopy",
+         `Beta_NO3` = "NO3_ug.L",
+         `NO3 partR2` = "partR2_NO3")|>arrange(desc(`LNH partR2`))|>
   mutate(Basis = "Percent")|>relocate(Basis)
 
 
-bind_rows(areal_lm_table, per_lm_table)|>write_csv(here("analysis/paper/figures_and_tables/Table1_Peri_linmod.csv"))
+bind_rows(areal_lm_table, per_lm_table)|>write_csv(here("analysis/paper/figures_and_tables/Table2_Peri_linmod.csv"))
 
 per_lm_table
 areal_lm_table
