@@ -791,9 +791,86 @@ invert_shred_chllms <- invert_per_shred|>
   select(-AIC,-BIC,-logLik,-deviance)
 ```
 
+```{r invert plots}
+peri_per.p <- FA_groups_per|>
+  filter(Type == "Periphyton")|>
+  relocate(ARA, per_PUFA, .before = "DPA")|>
+  select(1:18,-Taxon,-Type)|>select(where(~ any(. != 0)))|>
+  pivot_longer(2:16,values_to = "FA_per", names_to = "FA")|>mutate(FA = as_factor(FA))|>
+  filter(!str_detect(FA,"16PUFA")&!str_detect(FA,"_sum")&!str_detect(FA,"MUFA_")&!str_detect(FA,"brFA")&FA!="w3_w6")|>
+  mutate(FA = fct_recode(FA, "PUFA" = "per_PUFA"),
+         FA = fct_reorder(FA, FA_per, .fun = median, .desc = TRUE))|>
+  ggplot(aes(x = FA, y = FA_per))+
+  geom_boxplot(linewidth = 0.75)+
+  geom_point(size = 3, alpha = 0.5)+
+  scale_y_log10(breaks = c(0.001,0.01,0.1,1,10,100), labels = c("0.001","0.01","0.1","1","10","100"))+
+  theme_bw()+
+  ylab(bquote("Fatty Acid (% Total FA)"))+
+  theme(axis.text.x = element_text(angle = 90, size = 15, face = "bold", vjust = 0.5), axis.title.x = element_blank(),
+        axis.text.y = element_text(size = 15, face = "bold"), axis.title.y = element_text(size = 18))
+peri_per.p
 
-```{r invert lmm attempt}
 
+blah <- ffg_inverts|>
+  select(1:23,-Type)|>select(where(~ any(. != 0)))|>
+  pivot_longer(3:22,values_to = "FA_per", names_to = "FA")|>mutate(FA = as_factor(FA))|>
+  filter(!str_detect(FA,"16PUFA")&!str_detect(FA,"_sum")&!str_detect(FA,"MUFA_")&!str_detect(FA,"brFA")&FA!="GLA")|>
+  #mutate(FA = fct_recode(FA, "PUFA" = "per_PUFA"),
+  #       FA = fct_reorder(FA, FA_per, .fun = median, .desc = TRUE))|>
+  ggplot(aes(x = Taxon, y = FA_per))+
+  geom_boxplot(linewidth = 0.75)+
+  geom_point(size = 3, alpha = 0.5)+
+  scale_y_log10()+
+  facet_wrap(.~FA, scales = "free")+
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r invert linear models}
+inv_lm <- ffg_inverts|>
+  pivot_longer(c(LSAFA,ARA,w3_w6,EPA, DHA, per_PUFA),values_to = "FA_per", names_to = "FA")|>mutate(FA = as_factor(FA))|>
+  nest_by(FA)|>
+  mutate(model = list(lm(FA_per ~ Canopy_Cover_per/Taxon+NO3_ug.L/Taxon + Taxon, data = data)),
+         model_reduced =  list(lm(FA_per ~ Taxon, data = data)),
+         model_reduced_no3 =  list(lm(FA_per ~ Taxon+NO3_ug.L/Taxon, data = data)),
+         model_reduced_can =  list(lm(FA_per ~ Taxon+Canopy_Cover_per/Taxon, data = data)),
+         model_reduced_no3can =  list(lm(FA_per ~ NO3_ug.L+Canopy_Cover_per, data = data)))|>
+  summarize(glance(model), 
+            coefs = list(tidy(model)|>filter(term != "(Intercept)")),
+            partR2_Taxon = rsq::rsq(model)-rsq::rsq(model_reduced_no3can),
+            partR2_LNH = rsq::rsq(model)-rsq::rsq(model_reduced),
+            partR2_Canopy = rsq::rsq(model)-rsq::rsq(model_reduced_no3),
+            partR2_NO3 = rsq::rsq(model)-rsq::rsq(model_reduced_can),
+            pval_LNH= anova(model,model_reduced)[[6]][[2]],
+             resids = list(bind_cols(data, 
+                                    resids = resid(model),
+                                    fitted = fitted(model), name = FA, 
+                                    )))|>
+  select(-AIC,-BIC,-logLik,-deviance)
+
+inv_lm2 <- ffg_inverts|>
+  filter(Taxon %in% c("Heptageniidae", "Hydropsychidae", "Physidae"))|>
+  pivot_longer(c(LSAFA,ARA,w3_w6,EPA, DHA, per_PUFA),values_to = "FA_per", names_to = "FA")|>mutate(FA = as_factor(FA))|>
+  nest_by(FA)|>
+  mutate(model = list(lm(FA_per ~ Canopy_Cover_per/Taxon+NO3_ug.L/Taxon + Taxon, data = data)),
+         model_reduced =  list(lm(FA_per ~ Taxon, data = data)),
+         model_reduced_no3 =  list(lm(FA_per ~ Taxon+NO3_ug.L/Taxon, data = data)),
+         model_reduced_can =  list(lm(FA_per ~ Taxon+Canopy_Cover_per/Taxon, data = data)),
+         model_reduced_no3can =  list(lm(FA_per ~ NO3_ug.L+Canopy_Cover_per, data = data)))|>
+  summarize(glance(model), 
+            coefs = list(tidy(model)|>filter(term != "(Intercept)")),
+            partR2_Taxon = rsq::rsq(model)-rsq::rsq(model_reduced_no3can),
+            partR2_LNH = rsq::rsq(model)-rsq::rsq(model_reduced),
+            partR2_Canopy = rsq::rsq(model)-rsq::rsq(model_reduced_no3),
+            partR2_NO3 = rsq::rsq(model)-rsq::rsq(model_reduced_can),
+            pval_LNH= anova(model,model_reduced)[[6]][[2]],
+             resids = list(bind_cols(data, 
+                                    resids = resid(model),
+                                    fitted = fitted(model), name = FA, 
+                                    )))|>
+  select(-AIC,-BIC,-logLik,-deviance)
+```
+
+```{r deprecated lmm}
 lmm1 <- ffg_inverts|>
   pivot_longer(c(LSAFA,ARA,w3_w6,EPA, DHA, per_PUFA),values_to = "FA_per", names_to = "FA")|>mutate(FA = as_factor(FA))|>
   nest_by(FA)|>
