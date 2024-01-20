@@ -190,17 +190,7 @@ blahper2
 
 # Periphyton linear models
 
-```{r test}
-blah <- FA_groups_areal|>
-  filter(Type == "Periphyton")|>
-  select(Site, EcoRegion, Canopy_Cover_per, NO3_ug.L,LSAFA,ARA, Tot_FA, EPA, DHA, sum_PUFA)|>
-  pivot_longer(c(LSAFA,ARA, Tot_FA, EPA, DHA, sum_PUFA),values_to = "FA_per", names_to = "FA")|>mutate(FA = as_factor(FA))|>
-  filter(FA == "LSAFA")
 
-blah.lm <- lm(data = blah, FA_per ~ EcoRegion+NO3_ug.L+Canopy_Cover_per)
-anova(blah.lm)
-
-```
 
 ```{r areal lms}
 peri_areal_lms <- FA_groups_areal|>
@@ -365,6 +355,7 @@ plot(peri_per.rda, scaling = 1,display = c("sp", "wa", "cn"))
 plot(peri_per.rda, scaling = 2,display = c("sp", "wa", "cn"))
 
 ```
+
 ```{r peri areal RDA}
 
 
@@ -388,6 +379,27 @@ summary(peri_are.rda)
 plot(peri_are.rda, scaling = 1,display = c("sp", "wa", "cn"))
 plot(peri_are.rda, scaling = 2,display = c("sp", "wa", "cn"))
 
+fa_scores1 <- scores(peri_are.rda, scaling = 1)$species|>as_tibble(rownames = "FA")
+site_scores1 <- scores(peri_are.rda, scaling = 1)$sites|>as_tibble()|>
+  mutate(Site = peri_group_com_are$Site, .before = RDA1)
+var_scores1 <- scores(peri_are.rda, scaling = 1)$biplot|>as_tibble(rownames = "Env_Variable")
+
+fa_scores2 <- scores(peri_are.rda, scaling = 2)$species|>as_tibble(rownames = "FA")
+site_scores2 <- scores(peri_are.rda, scaling = 2)$sites|>as_tibble()|>
+  mutate(Site = peri_group_com_are$Site, .before = RDA1)
+var_scores2 <- scores(peri_are.rda, scaling = 2)$biplot|>as_tibble(rownames = "Env_Variable")
+
+
+ggplot()+
+  geom_text(data = fa_scores1, aes(x = RDA1, y = RDA2, label = FA), color = "red")+
+  geom_text(data = site_scores1, aes(x = RDA1, y = RDA2, label = Site))+
+  geom_segment(data = var_scores1, aes(x = 0, y = 0, xend = RDA1, yend = RDA2))
+
+
+ggplot()+
+  geom_text(data = fa_scores2, aes(x = RDA1, y = RDA2, label = FA), color = "red")+
+  geom_text(data = site_scores2, aes(x = RDA1, y = RDA2, label = Site))+
+  geom_segment(data = var_scores2, aes(x = 0, y = 0, xend = RDA1, yend = RDA2))
 ```
 
 
@@ -431,9 +443,58 @@ multi_ffg_taxa<-ffg|>group_by(Taxa)|>count(FFG)|>summarize(n=sum(n))|>filter(n>1
 
 FA_groups_per|>filter(!(Taxon %in% multi_ffg_taxa))
 FA_groups_per|>filter(Type == "Invert")
-ffg_inverts <- FA_groups_per|>filter(!(Taxon %in% multi_ffg_taxa))|>filter(Type == "Invert")|>left_join(ffg|>rename(Taxon = "Taxa"))
+ffg_inverts <- FA_groups_areal|>filter(!(Taxon %in% multi_ffg_taxa))|>filter(Type == "Invert")|>left_join(ffg|>rename(Taxon = "Taxa"))
 
 ```
+## Invert Plots
+```{r invert plots}
+
+
+inv_sums_df_all <- FA_groups_areal|>filter(Type=="Invert")|>
+  mutate(Taxon = case_when(Taxon == "Isopod" ~ "Isopoda", 
+                           Taxon == "Amphipod" ~ "Amphipoda", 
+                           Taxon == "Oligochaete" ~ "Lumbriculidae",
+                           .default = Taxon))|>
+  select(1:23,-Type)|>select(where(~ any(. != 0)))|>
+  pivot_longer(3:22,values_to = "FA_per", names_to = "FA")|>mutate(FA = as_factor(FA))|>
+  filter(!str_detect(FA,"16PUFA")&!str_detect(FA,"_sum")&!str_detect(FA,"MUFA_")&!str_detect(FA,"brFA")&FA!="GLA"&FA != "DPA"&FA!="LIN"&FA!="SDA")|>
+  mutate(FA = fct_recode(FA, "PUFA" = "per_PUFA",!!paste0("\U03C9","3:","\U03C9","6") := "w3_w6", `Total FA` = "Tot_FA"),
+         FA = fct_reorder(FA, FA_per, .fun = median, .desc = TRUE))
+
+#plot all taxa
+options(scipen = 999)
+inv_sums_all.p<-ggplot()+
+  geom_boxplot(data = inv_sums_df|>group_by(Taxon,FA)|>filter(n()>2),aes(x = Taxon, y = FA_per),linewidth = 0.75, outlier.shape = NA)+
+  geom_point(data = inv_sums_df, aes(x = Taxon, y = FA_per),size = 3, alpha = 0.5)+
+  scale_y_log10()+
+  ylab(bquote("Fatty Acid (mg ∙"~g^-1~"wet mass)"))+
+  facet_wrap(.~FA)+
+  theme_bw()+
+  theme(axis.title.x = element_blank(),axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 15, face = "bold"), axis.text.y = element_text(size = 15, face = "bold"), axis.title.y = element_text(size = 20, face = "bold"), strip.text = element_text(size = 15))
+
+# Plot only abundant taxa
+inv_sums_df <- inv_sums_df_all|>
+  group_by(Taxon,FA)|>filter(n()>7)
+
+options(scipen = 999)
+inv_sums.p<-ggplot()+
+  geom_boxplot(data = inv_sums_df,aes(x = Taxon, y = FA_per),linewidth = 0.75, outlier.shape = NA)+
+  geom_point(data = inv_sums_df, aes(x = Taxon, y = FA_per),size = 3, alpha = 0.5)+
+  scale_y_log10()+
+  ylab(bquote("Fatty Acid (mg ∙"~g^-1~"wet mass)"))+
+  facet_wrap(.~FA, scales = "free_y")+
+  theme_bw()+
+  theme(axis.title.x = element_blank(),axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 18, face = "bold"), axis.text.y = element_text(size = 15, face = "bold"), axis.title.y = element_text(size = 20, face = "bold"), strip.text = element_text(size = 15))
+
+ggsave(inv_sums.p, filename = here("analysis/paper/figures_and_tables/Fig4_Invert-FAs.jpeg"),
+       height = 10, width = 15)
+
+ggsave(inv_sums_all.p, filename = here("analysis/paper/figures_and_tables/FigSx_AllInvert-FAs.jpeg"),
+       height = 10, width = 15)
+
+invert_counts<-inv_sums_df_all|>group_by(Taxon, Site)|>slice_head(n = 1)|>group_by(Taxon)|>count()
+```
+
 
 ```{r invert ffg dfs}
 intersect(ffg_cg,ffg_p,ffg_shred,ffg_shred)
@@ -791,39 +852,7 @@ invert_shred_chllms <- invert_per_shred|>
   select(-AIC,-BIC,-logLik,-deviance)
 ```
 
-```{r invert plots}
-peri_per.p <- FA_groups_per|>
-  filter(Type == "Periphyton")|>
-  relocate(ARA, per_PUFA, .before = "DPA")|>
-  select(1:18,-Taxon,-Type)|>select(where(~ any(. != 0)))|>
-  pivot_longer(2:16,values_to = "FA_per", names_to = "FA")|>mutate(FA = as_factor(FA))|>
-  filter(!str_detect(FA,"16PUFA")&!str_detect(FA,"_sum")&!str_detect(FA,"MUFA_")&!str_detect(FA,"brFA")&FA!="w3_w6")|>
-  mutate(FA = fct_recode(FA, "PUFA" = "per_PUFA"),
-         FA = fct_reorder(FA, FA_per, .fun = median, .desc = TRUE))|>
-  ggplot(aes(x = FA, y = FA_per))+
-  geom_boxplot(linewidth = 0.75)+
-  geom_point(size = 3, alpha = 0.5)+
-  scale_y_log10(breaks = c(0.001,0.01,0.1,1,10,100), labels = c("0.001","0.01","0.1","1","10","100"))+
-  theme_bw()+
-  ylab(bquote("Fatty Acid (% Total FA)"))+
-  theme(axis.text.x = element_text(angle = 90, size = 15, face = "bold", vjust = 0.5), axis.title.x = element_blank(),
-        axis.text.y = element_text(size = 15, face = "bold"), axis.title.y = element_text(size = 18))
-peri_per.p
 
-
-blah <- ffg_inverts|>
-  select(1:23,-Type)|>select(where(~ any(. != 0)))|>
-  pivot_longer(3:22,values_to = "FA_per", names_to = "FA")|>mutate(FA = as_factor(FA))|>
-  filter(!str_detect(FA,"16PUFA")&!str_detect(FA,"_sum")&!str_detect(FA,"MUFA_")&!str_detect(FA,"brFA")&FA!="GLA")|>
-  #mutate(FA = fct_recode(FA, "PUFA" = "per_PUFA"),
-  #       FA = fct_reorder(FA, FA_per, .fun = median, .desc = TRUE))|>
-  ggplot(aes(x = Taxon, y = FA_per))+
-  geom_boxplot(linewidth = 0.75)+
-  geom_point(size = 3, alpha = 0.5)+
-  scale_y_log10()+
-  facet_wrap(.~FA, scales = "free")+
-  theme(axis.text.x = element_text(angle = 90))
-```
 
 ```{r invert linear models}
 inv_lm <- ffg_inverts|>
