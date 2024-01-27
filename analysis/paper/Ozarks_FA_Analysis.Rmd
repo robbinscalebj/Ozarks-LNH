@@ -330,14 +330,12 @@ areal_lm_table
 
 
 # Ordinate the periphyton FA profiles
-Groups = 18 MUFA, 16_MUFA, DHA, EPA, ARA, ALA, EPA, SDA, LIN, brFA,LSAFA
-
 
 RDA needs an env matrix and a response matrix
 ```{r peri percent RDA}
 peri_group_com_per<-FA_groups_per|>
   filter(Type == "Periphyton")|>
-  select(Site,LSAFA,brFA,EPA,DPA,LIN,SDA,ALA,ARA,GLA,DHA, MUFA_16, MUFA_18)
+  select(Site,SAFA,LSAFA,brFA,EPA,LIN,SDA,ALA,ARA,DHA, MUFA_16, MUFA_18)
 
 peri_env_per <- FA_groups_per|>
   filter(Type == "Periphyton")|>
@@ -349,10 +347,13 @@ peri_group_per <- peri_group_com_per|>select(-Site)
 peri_per.rda <- rda(peri_group_per ~ Condition(ER_)+NO3_ug.L+Canopy_Cover_per, data = peri_env_per, scale = TRUE)
 
 anova(peri_per.rda, by = "axis",permutations = how(nperm=9999))
+anova(peri_per.rda, by = "terms",permutations = how(nperm=9999))
 summary(peri_per.rda)
 RsquareAdj(peri_per.rda)
 plot(peri_per.rda, scaling = 1,display = c("sp", "wa", "cn"))
 plot(peri_per.rda, scaling = 2,display = c("sp", "wa", "cn"))
+
+# Mill and Diles look like outliers on scaling 2, but their exclusion doesn't significantly change any results
 
 ```
 
@@ -361,11 +362,11 @@ plot(peri_per.rda, scaling = 2,display = c("sp", "wa", "cn"))
 
 peri_group_com_are<-FA_groups_areal|>
   filter(Type == "Periphyton")|>
-  select(Site,LSAFA,ARA,brFA,MUFA_16,MUFA_18,DHA,LIN,SDA,EPA,ALA)
+  select(Site,SAFA,LSAFA,brFA,EPA,LIN,SDA,ALA,ARA,DHA, MUFA_16, MUFA_18)
 
 peri_env_are <- FA_groups_areal|>
   filter(Type == "Periphyton")|>
-  select(Canopy_Cover_per, NO3_ug.L, SRP_ug.L, EcoRegion, Hay_per)|>
+  select(Canopy_Cover_per, NO3_ug.L, EcoRegion)|>
   mutate(EcoRegion = as_factor(EcoRegion))
 
 peri_group_are <- peri_group_com_are|>select(-Site)
@@ -375,31 +376,113 @@ peri_group_are <- peri_group_com_are|>select(-Site)
 peri_are.rda <- rda(peri_group_are ~ Condition(EcoRegion)+NO3_ug.L+Canopy_Cover_per, data = peri_env_are, scale = TRUE)
 
 anova(peri_are.rda, by = "axis",permutations = how(nperm=9999))
+anova(peri_are.rda, by = "terms",permutations = how(nperm=9999))
 summary(peri_are.rda)
+RsquareAdj(peri_are.rda)
 plot(peri_are.rda, scaling = 1,display = c("sp", "wa", "cn"))
 plot(peri_are.rda, scaling = 2,display = c("sp", "wa", "cn"))
+```
+
+```{r plot periphyton areal RDAs}
+
+theme_rda <- theme_bw()+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        legend.text = element_text(size = 16), axis.text = element_text(face = "bold", size = 14), axis.title = element_text(size = 18, face = "bold"), plot.title = element_text(size = 18, face = "bold"))
 
 fa_scores1 <- scores(peri_are.rda, scaling = 1)$species|>as_tibble(rownames = "FA")
 site_scores1 <- scores(peri_are.rda, scaling = 1)$sites|>as_tibble()|>
   mutate(Site = peri_group_com_are$Site, .before = RDA1)
-var_scores1 <- scores(peri_are.rda, scaling = 1)$biplot|>as_tibble(rownames = "Env_Variable")
+var_scores1 <- scores(peri_are.rda, scaling = 1)$biplot|>as_tibble(rownames = "Env_Variable")|>filter(Env_Variable=="NO3_ug.L")
 
 fa_scores2 <- scores(peri_are.rda, scaling = 2)$species|>as_tibble(rownames = "FA")
 site_scores2 <- scores(peri_are.rda, scaling = 2)$sites|>as_tibble()|>
   mutate(Site = peri_group_com_are$Site, .before = RDA1)
-var_scores2 <- scores(peri_are.rda, scaling = 2)$biplot|>as_tibble(rownames = "Env_Variable")
+var_scores2 <- scores(peri_are.rda, scaling = 2)$biplot|>as_tibble(rownames = "Env_Variable")|>filter(Env_Variable=="NO3_ug.L")
 
 
-ggplot()+
-  geom_text(data = fa_scores1, aes(x = RDA1, y = RDA2, label = FA), color = "red")+
-  geom_text(data = site_scores1, aes(x = RDA1, y = RDA2, label = Site))+
-  geom_segment(data = var_scores1, aes(x = 0, y = 0, xend = RDA1, yend = RDA2))
+
+periare_rda_p1 <- ggplot(data = var_scores1)+
+  ggrepel::geom_text_repel(data = fa_scores1, aes(x = RDA1, y = RDA2, label = FA), color = "red", max.overlaps = 15)+
+  ggrepel::geom_text_repel(data = site_scores1, aes(x = RDA1, y = RDA2, label = Site), max.overlaps = 15)+
+  geom_segment(data = var_scores1, aes(x = 0, y = 0, xend = RDA1, yend = RDA2, color = Env_Variable), arrow = arrow(length = unit(0.3,"cm")), linewidth = 1)+
+  theme_rda+
+  theme(legend.position = c(0.14,0.88), legend.title =element_blank(),legend.box.background = element_rect(colour = "black"))+
+  ggtitle("Scaling 1")+
+  scale_color_manual(labels = c(~paste("NO"[3])), values = "blue")
 
 
-ggplot()+
-  geom_text(data = fa_scores2, aes(x = RDA1, y = RDA2, label = FA), color = "red")+
-  geom_text(data = site_scores2, aes(x = RDA1, y = RDA2, label = Site))+
-  geom_segment(data = var_scores2, aes(x = 0, y = 0, xend = RDA1, yend = RDA2))
+periare_rda_p2 <- 
+ggplot(data = var_scores2)+
+  ggrepel::geom_text_repel(data = fa_scores2, aes(x = RDA1, y = RDA2, label = FA), color = "red", max.overlaps = 15)+
+  ggrepel::geom_text_repel(data = site_scores2, aes(x = RDA1, y = RDA2, label = Site), max.overlaps = 15)+
+  geom_segment(data = var_scores2, aes(x = 0, y = 0, xend = RDA1, yend = RDA2, color = Env_Variable), arrow = arrow(length = unit(0.3,"cm")), linewidth = 1)+
+  scale_color_manual(labels = c(~paste("NO"[3])), values = "blue")+
+  theme_rda+
+  theme(legend.position = "none")+
+  ggtitle("Scaling 2")
+
+
+  periare.p <- cowplot::plot_grid(
+    periare_rda_p1, 
+    periare_rda_p2,
+    nrow = 2)
+  periare.p
+  
+  ggsave(periare_rda_p1, filename = here("analysis/paper/figures_and_tables/Fig3_PeriArea-RDA.jpeg"),
+       height = 6, width = 9.5)
+
+
+```
+
+```{r plot periphyton percent RDAs}
+# these are non-sig but plotting for fun
+
+fa_scores1_per <- scores(peri_per.rda, scaling = 1)$species|>as_tibble(rownames = "FA")
+site_scores1_per <- scores(peri_per.rda, scaling = 1)$sites|>as_tibble()|>
+  mutate(Site = peri_group_com_are$Site, .before = RDA1)
+var_scores1_per <- scores(peri_per.rda, scaling = 1)$biplot|>as_tibble(rownames = "Env_Variable")
+
+fa_scores2_per <- scores(peri_per.rda, scaling = 2)$species|>as_tibble(rownames = "FA")
+site_scores2_per <- scores(peri_per.rda, scaling = 2)$sites|>as_tibble()|>
+  mutate(Site = peri_group_com_are$Site, .before = RDA1)
+var_scores2_per <- scores(peri_per.rda, scaling = 2)$biplot|>as_tibble(rownames = "Env_Variable")
+
+
+periper_rda_p1 <- ggplot(data = var_scores1_per)+
+  ggrepel::geom_text_repel(data = fa_scores1_per, aes(x = RDA1, y = RDA2, label = FA), color = "red", max.overlaps = 15)+
+  ggrepel::geom_text_repel(data = site_scores1_per, aes(x = RDA1, y = RDA2, label = Site), max.overlaps = 15)+
+  geom_segment(data = var_scores1_per, aes(x = 0, y = 0, xend = RDA1, yend = RDA2, color = Env_Variable), arrow = arrow(length = unit(0.3,"cm")), linewidth = 1)+
+  theme_rda+
+  theme(legend.position = c(0.14,0.88), legend.title =element_blank())+
+  ggtitle("Scaling 1")+
+  scale_color_manual(labels = c("Canopy Cover (%)",
+                                ~paste("NO"[3])),
+                                values = c("blue","orange"))
+
+
+periper_rda_p2 <- 
+ggplot(data = var_scores2_per)+
+  ggrepel::geom_text_repel(data = fa_scores2_per, aes(x = RDA1, y = RDA2, label = FA), color = "red", max.overlaps = 15)+
+  ggrepel::geom_text_repel(data = site_scores2_per, aes(x = RDA1, y = RDA2, label = Site), max.overlaps = 15)+
+  geom_segment(data = var_scores2_per, aes(x = 0, y = 0, xend = RDA1, yend = RDA2, color = Env_Variable), arrow = arrow(length = unit(0.3,"cm")), linewidth = 1)+
+  scale_color_manual(labels = c("Canopy Cover (%)",
+                                ~paste("NO"[3])),
+                                values = c("blue","orange"))+
+  theme_rda+
+  theme(legend.position = "none")+
+  ggtitle("Scaling 2")
+
+
+  periper.p <- cowplot::plot_grid(
+    periper_rda_p1, 
+    periper_rda_p2,
+    nrow = 2)
+  periper.p
+  
+ # ggsave(periper.p, filename = here("analysis/paper/figures_and_tables/FigSx_PeriPer-RDA.jpeg"),
+       height = 9, width = 9.5)
+
+
 ```
 
 
@@ -528,10 +611,25 @@ invert_per_scrape2<-FA_per_pericols|>filter(Type == "Invert")|>filter(Taxon %in%
 ```
 
 ```{r correlations}
-blah <- invert_per_shred |> correlation(select = c("LSAFA","ARA","ALA","LIN","brFA", "w3_w6","EPA", "DHA", "per_PUFA"), select2 = c("Canopy_Cover_per", "NO3_ug.L"))
+blah <- FA_groups_areal|>
+  filter(Type == "Invert")|>group_by(Taxon)|>
+  mutate(size = n())|>filter(size >7)|>
+  correlation::correlation(select = c("LSAFA","ARA","ALA","LIN","brFA", "w3_w6","EPA", "DHA", "sum_PUFA"), select2 = c("Canopy_Cover_per", "NO3_ug.L"), p_adjust = "none")
 blah
+
+blah2 <- FA_groups_per|>
+  filter(Type == "Invert")|>group_by(Taxon)|>
+  mutate(size = n())|>filter(size >7)|>
+  correlation::correlation(select = c("LSAFA","ARA","ALA","LIN","brFA", "w3_w6","EPA", "DHA", "per_PUFA"), select2 = c("Canopy_Cover_per", "NO3_ug.L"), p_adjust = "none")
+blah
+
+ggplot(data = FA_groups_areal|>filter(Taxon == "Heptageniidae"),aes(x = Canopy_Cover_per, y = EPA))+
+  geom_point()+
+  geom_smooth(method = "lm")
 ```
 
+
+# Deprecated
 ```{r reg model}
 #mass FA/ mass dry mass
 invert_mass_lms <- FA_groups_areal|>
