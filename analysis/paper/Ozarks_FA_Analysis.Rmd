@@ -341,7 +341,6 @@ peri_env_per <- FA_groups_per|>
   filter(Type == "Periphyton")|>
   select(Canopy_Cover_per, NO3_ug.L, EcoRegion)|>
   mutate(ER_ = as_factor(EcoRegion))
-#community matrix same as NMDS above: peri_group_com
 peri_group_per <- peri_group_com_per|>select(-Site)
 
 peri_per.rda <- rda(peri_group_per ~ Condition(ER_)+NO3_ug.L+Canopy_Cover_per, data = peri_env_per, scale = TRUE)
@@ -611,23 +610,52 @@ invert_per_scrape2<-FA_per_pericols|>filter(Type == "Invert")|>filter(Taxon %in%
 ```
 
 ```{r correlations}
-blah <- FA_groups_areal|>
+inv_are_corr <- FA_groups_areal|>
   filter(Type == "Invert")|>group_by(Taxon)|>
-  mutate(size = n())|>filter(size >7)|>
+  mutate(size = n())|>filter(size >6)|>
   correlation::correlation(select = c("LSAFA","ARA","ALA","LIN","brFA", "w3_w6","EPA", "DHA", "sum_PUFA"), select2 = c("Canopy_Cover_per", "NO3_ug.L"), p_adjust = "none")
-blah
 
-blah2 <- FA_groups_per|>
+
+inv_per_corr <- FA_groups_per|>
   filter(Type == "Invert")|>group_by(Taxon)|>
-  mutate(size = n())|>filter(size >7)|>
+  mutate(size = n())|>filter(size >6)|>
   correlation::correlation(select = c("LSAFA","ARA","ALA","LIN","brFA", "w3_w6","EPA", "DHA", "per_PUFA"), select2 = c("Canopy_Cover_per", "NO3_ug.L"), p_adjust = "none")
-blah
+
 
 ggplot(data = FA_groups_areal|>filter(Taxon == "Heptageniidae"),aes(x = Canopy_Cover_per, y = EPA))+
   geom_point()+
   geom_smooth(method = "lm")
-```
 
+ggplot(data = FA_groups_areal|>filter(Taxon == "Perlidae"),aes(x = NO3_ug.L, y = EPA))+
+  geom_point()+
+  geom_smooth(method = "lm")
+
+```
+```{r NMDS inverts}
+
+inv_group_com_per<-FA_groups_per|>
+  filter(Type == "Invert")|>
+  select(Site,SAFA,LSAFA,brFA,EPA,LIN,SDA,ALA,ARA,DHA, MUFA_16, MUFA_18)
+
+inv_env_per <- FA_groups_per|>
+  filter(Type == "Invert")|>
+  select(Taxon)
+inv_com_per <- inv_group_com_per|>select(-Site)
+
+inv_nmds <- metaMDS(inv_com_per, k = 2, distance = "bray", trymax = 100)
+# Stress is ~0.12. k = 3 reduces stress further, but acceptable solution with k=2
+
+inv_nmds_scores <- scores(inv_nmds, tidy = TRUE)|>
+  mutate(score = ifelse(score == "sites", "taxon", "FA"))|>
+  mutate(label = ifelse(score == "taxon", inv_env_per$Taxon, label))
+
+ggplot()+
+  geom_label(data = inv_nmds_scores|>filter(score == "taxon")|>group_by(label)|>filter(n()<=6),aes(x = NMDS1, y = NMDS2, label = label))+
+  geom_point(data = inv_nmds_scores|>filter(score == "taxon")|>group_by(label)|>filter(n()>6),aes(x = NMDS1, y = NMDS2, color = label))+
+  stat_ellipse(data = inv_nmds_scores|>filter(score == "taxon")|>group_by(label)|>filter(n()>6),aes(x = NMDS1, y = NMDS2, color = label), type = "t")+
+  theme_bw()
+
+```
 
 # Deprecated
 ```{r reg model}
